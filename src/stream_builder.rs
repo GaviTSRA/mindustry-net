@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use crate::packet::{parse_regular_packet, Packet, PacketError};
+use crate::type_io::Reader;
 
 pub struct StreamBuilder {
   pub id: u32,
@@ -22,6 +23,7 @@ impl StreamBuilder {
   }
 
   pub fn build(self, content_map: &Option<HashMap<String, Vec<String>>>) -> Result<Packet, PacketError> {
-    parse_regular_packet(self.stream_type, self.data, content_map)
+    let reader = Reader::new(self.data);
+    parse_regular_packet(self.stream_type, reader, content_map)
   }
 }

@@ -11,7 +11,7 @@ use flate2::read::ZlibDecoder;
 use lz4::block::{compress, decompress};
 use tokio::net::tcp::OwnedReadHalf;
 use crate::save_io::{read_content_header, read_map};
-use crate::type_io::{read_double, read_float, read_int, read_kick, read_long, read_short, read_prefixed_string, read_string_map, write_float, write_int, write_short, write_string, KickReason, read_string, read_byte, read_bytes, Unit, write_byte, write_unit};
+use crate::type_io::{read_kick, read_prefixed_string, read_string_map, write_float, write_int, write_short, write_string, KickReason, read_string, Unit, write_byte, write_unit, Reader};
 use crate::unit_io::{read_full_unit, write_plans, FullUnit, Plan};
 
 #[derive(Debug)]
@@ -120,47 +120,50 @@ pub async fn read_packet_udp(
   let mut buf = [0u8; 32768];
   let length = socket.recv(&mut buf).await.unwrap();
   let data = &buf[..length];
-
+  
   parse_packet(Vec::from(data), content_map)
 }
 
 pub fn parse_packet(mut buf: Vec<u8>, content_map: &Option<HashMap<String, Vec<String>>>) -> Result<AnyPacket, PacketError> {
-  let id = read_byte(&mut buf);
+  let mut reader = Reader::new(buf);
+  
+  let id = reader.byte();
 
   if id == 254 {
-    Ok(AnyPacket::Framework(parse_framework_packet(buf)?))
+    Ok(AnyPacket::Framework(parse_framework_packet(reader)?))
   } else {
-    let data_length = read_short(&mut buf);
+    let data_length = reader.short();
 
-    let compressed = read_byte(&mut buf);
+    let compressed = reader.byte();
 
     if compressed == 1 {
-      buf = match decompress(&buf, Some(data_length as i32)) {
+      buf = match decompress(&*reader.read_remaining(), Some(data_length as i32)) {
         Ok(buf) => buf,
         Err(e) => {
           eprintln!("{e}");
           return Err(PacketError::DecompressionFailed)
         }
       };
+      reader = Reader::new(buf);
     }
-    Ok(AnyPacket::Regular(parse_regular_packet(id, buf, content_map)?))
+    Ok(AnyPacket::Regular(parse_regular_packet(id, reader, content_map)?))
   }
 }
 
-fn parse_framework_packet(mut buf: Vec<u8>) -> Result<FrameworkPacket, PacketError> {
-  let id = read_byte(&mut buf);
+fn parse_framework_packet(mut reader: Reader) -> Result<FrameworkPacket, PacketError> {
+  let id = reader.byte();
   Ok(match id {
     1 => FrameworkPacket::DiscoverHost,
     2 => FrameworkPacket::KeepAlive,
     3 => {
-      let bytes =  buf.drain(..4).collect::<Vec<u8>>();
+      let bytes =  reader.bytes(4);
       let mut data_buf = [0u8; 4];
       data_buf.copy_from_slice(&bytes);
       let data = u32::from_be_bytes(data_buf);
       FrameworkPacket::RegisterUDP(data)
     },
     4 => {
-      let bytes =  buf.drain(..4).collect::<Vec<u8>>();
+      let bytes =  reader.bytes(4);
       let mut data_buf = [0u8; 4];
       data_buf.copy_from_slice(&bytes);
       let data = u32::from_be_bytes(data_buf);
@@ -170,24 +173,25 @@ fn parse_framework_packet(mut buf: Vec<u8>) -> Result<FrameworkPacket, PacketErr
   })
 }
 
-pub fn parse_regular_packet(id: u8, mut buf: Vec<u8>, content_map: &Option<HashMap<String, Vec<String>>>) -> Result<Packet, PacketError> {
+pub fn parse_regular_packet(id: u8, mut reader: Reader, content_map: &Option<HashMap<String, Vec<String>>>) -> Result<Packet, PacketError> {
   //println!("{id}");
   
   match id {
     0 => {
-      let id = read_int(&mut buf);
-      let total = read_int(&mut buf);
-      let stream_type = read_byte(&mut buf);
+      let id = reader.int();
+      let total = reader.int();
+      let stream_type = reader.byte();
       Ok(Packet::StreamBegin { id, total, stream_type })
     }
     1 => {
-      let id = read_int(&mut buf);
-      let length = read_short(&mut buf);
-      let data = buf.drain(..(length as usize)).collect::<Vec<u8>>();
+      let id = reader.int();
+      let length = reader.short();
+      let data = reader.bytes(length as usize);
       Ok(Packet::StreamChunk { id, data })
     }
     2 => {
-      let mut decoder = ZlibDecoder::new(&*buf);
+      let remaining = reader.read_remaining();
+      let mut decoder = ZlibDecoder::new(&*remaining);
       let mut data = Vec::new();
       match decoder.read_to_end(&mut data) {
         Ok(_) =>  {},
@@ -196,41 +200,42 @@ pub fn parse_regular_packet(id: u8, mut buf: Vec<u8>, content_map: &Option<HashM
           return Err(PacketError::WorldDataDecompressionFailed)
         }
       }
+      reader = Reader::new(data);
 
-      let rules_json = read_string(&mut data); // TODO
-      let map = read_string_map(&mut data); // TODO
-      let wave = read_int(&mut data);
-      let wave_time = read_float(&mut data);
-      let tick = read_double(&mut data);
-      let seed0 = read_long(&mut data);
-      let seed1 = read_long(&mut data);
-      let id = read_int(&mut data);
+      let rules_json = read_string(&mut reader); // TODO
+      let map = read_string_map(&mut reader); // TODO
+      let wave = reader.int();
+      let wave_time = reader.float();
+      let tick = reader.double();
+      let seed0 = reader.long();
+      let seed1 = reader.long();
+      let id = reader.int();
 
-      read_short(&mut data);
-      read_byte(&mut data);
-      read_byte(&mut data);
-      read_int(&mut data);
-      read_byte(&mut data);
-      read_float(&mut data);
-      read_float(&mut data);
-      read_prefixed_string(&mut data);
-      read_byte(&mut data);
-      read_byte(&mut data);
-      read_byte(&mut data);
-      read_byte(&mut data);
-      read_int(&mut data);
-      read_float(&mut data);
-      read_float(&mut data);
+      reader.short();
+      reader.byte();
+      reader.byte();
+      reader.int();
+      reader.byte();
+      reader.float();
+      reader.float();
+      read_prefixed_string(&mut reader);
+      reader.byte();
+      reader.byte();
+      reader.byte();
+      reader.byte();
+      reader.int();
+      reader.float();
+      reader.float();
 
-      let content_map = read_content_header(&mut data);
+      let content_map = read_content_header(&mut reader);
 
       let default_content_map_path = PathBuf::from("content-map.json");
       let default_content_map_data = serde_json::to_string(&content_map).unwrap();
       fs::write(&default_content_map_path, default_content_map_data).unwrap();
       
-      read_map(&mut data, &content_map);
+      read_map(&mut reader, &content_map);
 
-      println!("Remaining data: {}", data.len()); // TODO
+      println!("Remaining data: {}", reader.remaining()); // TODO
       
       Ok(Packet::WorldStream {
         wave,
@@ -245,36 +250,39 @@ pub fn parse_regular_packet(id: u8, mut buf: Vec<u8>, content_map: &Option<HashM
     34 => {
       let mut units = HashMap::new();
 
-      let amount = read_short(&mut buf);
-      let mut data = read_bytes(&mut buf);
+      let amount = reader.short();
+      let byte_count = reader.short();
+      let mut data = reader.bytes(byte_count as usize);
+      
+      let mut unit_reader = Reader::new(data);
 
       for _ in 0..amount {
-        let id = read_int(&mut data);
-        let unit_type = read_byte(&mut data);
-        let unit = read_full_unit(&mut data, unit_type, false, content_map);
+        let id = unit_reader.int();
+        let unit_type = unit_reader.byte();
+        let unit = read_full_unit(&mut unit_reader, unit_type, false, content_map);
         units.insert(id, unit);
       }
 
       Ok(Packet::EntitySnapshot { units })
     }
     44 => {
-      let reason = read_prefixed_string(&mut buf).unwrap();
+      let reason = read_prefixed_string(&mut reader).unwrap();
       Ok(Packet::KickCall { reason })
     }
     45 => {
-      let reason = read_kick(&mut buf).unwrap();
+      let reason = read_kick(&mut reader).unwrap();
       Ok(Packet::KickCall2 { reason })
     }
     59 => {
-      let tile_x = read_short(&mut buf);
-      let tile_y = read_short(&mut buf);
-      let entity = read_int(&mut buf);
+      let tile_x = reader.short();
+      let tile_y = reader.short();
+      let entity = reader.int();
       Ok(Packet::SpawnCall { tile_x, tile_y, entity })
     }
     73 => {
-      let message = read_prefixed_string(&mut buf).unwrap();
-      let unformatted = read_prefixed_string(&mut buf);
-      let sender = read_int(&mut buf);
+      let message = read_prefixed_string(&mut reader).unwrap();
+      let unformatted = read_prefixed_string(&mut reader);
+      let sender = reader.int();
       Ok(Packet::SendMessageCall2 {
         message, unformatted, sender
       }) 

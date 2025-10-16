@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use serde::Deserialize;
-use crate::type_io::{read_bool, read_byte, read_command, read_double, read_float, read_int, read_long, read_object_boxed, read_prefixed_string, read_short, read_string, read_vec2_nullable};
+use crate::type_io::{read_command, read_object_boxed, read_prefixed_string, read_string, read_vec2_nullable, Reader};
 use crate::unit_io::{read_payload, read_plans};
 
 // TODO: Everything basically
@@ -27,19 +27,19 @@ fn load_block_params() -> HashMap<String, BlockParam> {
   serde_json::from_str(data).unwrap()
 }
 
-fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &HashMap<String, Vec<String>>) {
+fn read_main(reader: &mut Reader, block_type: String, version: u8, content_map: &HashMap<String, Vec<String>>) {
   if block_type == "GenericCrafter" || block_type == "Separator" || block_type == "HeatProducer" || block_type == "HeatCrafter" {
-    let progress = read_float(data);
-    let warmup = read_float(data);
+    let progress = reader.float();
+    let warmup = reader.float();
     
     let heat;
     if block_type == "HeatProducer" {
-      heat = read_float(data);
+      heat = reader.float();
     }
   
     let seed;
     if block_type == "Separator" || version == 1 {
-      seed = read_int(data);
+      seed = reader.int();
     }
   
     //let result = {
@@ -50,31 +50,31 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "Door" || block_type == "AutoDoor" {
-    let open = read_byte(data);
+    let open = reader.byte();
     //let result = {
     //  open
     //}
     //return result
   } else if block_type == "ShieldWall" {
-    let shield = read_float(data);
+    let shield = reader.float();
     //let result = {
     // shield
     //
     //return result
   } else if block_type == "MendProjector" || block_type == "OverdriveProjector" {
-    let heat = read_float(data);
-    let pheat = read_float(data);
+    let heat = reader.float();
+    let pheat = reader.float();
     //let result = {
     //  heat,
     //  pheat
     //}
     //return result
   } else if block_type == "ForceProjector" {
-    let broken = read_byte(data);
-    let buildup = read_float(data);
-    let radscl = read_float(data);
-    let warmup = read_float(data);
-    let pheat = read_float(data);
+    let broken = reader.byte();
+    let buildup = reader.float();
+    let radscl = reader.float();
+    let warmup = reader.float();
+    let pheat = reader.float();
     //let result = {
     //  broken,
     //  buildup,
@@ -84,43 +84,43 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "Radar" {
-    let progress = read_float(data);
+    let progress = reader.float();
     //let result = {
     //  progress
     //}
     //return result
   } else if block_type == "BuildTurret" {
-    let rotation = read_float(data);
-    let plans = read_plans(data);
+    let rotation = reader.float();
+    let plans = read_plans(reader);
     //let result = {
     //  rotation,
     //  plans
     //}
     //return result
   } else if block_type == "BaseShield" {
-    let sradius = read_float(data);
-    let broken = read_byte(data);
+    let sradius = reader.float();
+    let broken = reader.byte();
     //let result = {
     //  sradius,
     //  broken
     //}
     //return result
   } else if block_type == "Conveyor" || block_type == "ArmoredConveyor"{
-    let amount = read_int(data);
+    let amount = reader.int();
     //let map = []
     for i in 0..amount {
       let id;
       let x;
       let y;
       if version == 0 {
-        let val = read_int(data);
+        let val = reader.int();
         id = (val >> 24) & 0xff;
         x = ((val >> 16) & 0xff) / 127;
         y = (((val >> 8) & 0xff) + 128) / 255;
       } else {
-        let id = read_short(data);
-        x = (read_byte(data) / 127) as u32;
-        y = ((read_byte(data) + 128) / 255) as u32
+        let id = reader.short();
+        x = (reader.byte() / 127) as u32;
+        y = ((reader.byte() + 128) / 255) as u32
       }
       //let res = {
       //  id,
@@ -134,8 +134,8 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "StackConveyor" {
-    let link = read_int(data);
-    let cooldown = read_float(data);
+    let link = reader.int();
+    let cooldown = reader.float();
     //let result = {
     //  link,
     //  cooldown
@@ -146,10 +146,10 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //let indexes = []
     for i in 0..4 {
       //buffers[i] = []
-      /*indexes[i] =*/ read_byte(data);
-      let length = read_byte(data);
+      /*indexes[i] =*/ reader.byte();
+      let length = reader.byte();
       for j in 0..length {
-        let value = read_long(data);;
+        let value = reader.long();;
         //buffers[i][j] = value
       }
     }
@@ -159,26 +159,26 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "BufferedItemBridge" || block_type == "ItemBridge" || block_type == "LiquidBridge" {
-    let link = read_int(data);
-    let warmup = read_float(data);
-    let links = read_byte(data);
+    let link = reader.int();
+    let warmup = reader.float();
+    let links = reader.byte();
     //let incoming = [];
     let moved;
     for i in 0..links {
-      /*incoming.push(*/read_int(data)/*)*/;
+      /*incoming.push(*/reader.int()/*)*/;
     }
     if version >= 1 {
-      moved = read_byte(data);
+      moved = reader.byte();
     }
     let index;
     let length;
     //let buffer;
     if block_type == "BufferedItemBridge" {
-      index = read_byte(data);
-      length = read_byte(data);
+      index = reader.byte();
+      length = reader.byte();
       //buffer = [];
       for i in 0..length {
-        let l = read_long(data);;
+        let l = reader.long();;
         //buffer[i] = l;
       }
     }
@@ -191,16 +191,16 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "Sorter" {
-    let sortitem = read_short(data);
+    let sortitem = reader.short();
     //let buffers = []
     //let indexes = []
     if version == 1 {
       for i in 0..4 {
         //buffers[i] = []
-        //indexes[i] = read_byte(data);
-        let length = read_byte(data);
+        //indexes[i] = reader.byte();
+        let length = reader.byte();
         for j in 0..length {
-          let value = read_long(data);;
+          let value = reader.long();;
           //buffers[i][j] = value
         }
       }
@@ -216,24 +216,24 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     if version == 1 {
       for i in 0..4 {
         //buffers[i] = []
-        //indexes[i] = read_byte(data);
-        let length = read_byte(data);
+        //indexes[i] = reader.byte();
+        let length = reader.byte();
         for j in 0..length {
-          let value = read_long(data);;
+          let value = reader.long();;
           //buffers[i][j] = value
         }
       }
     } else if version == 3 {
-      data.drain(0..4);
+      reader.bytes(4);
     }
     //let result = {
     //  buffers
     //}
     //return result
   } else if block_type == "MassDriver" {
-    let link = read_int(data);
-    let rotation = read_float(data);
-    let state = read_byte(data);
+    let link = reader.int();
+    let rotation = reader.float();
+    let state = reader.byte();
     //let result = {
     //  link,
     //  rotation,
@@ -243,7 +243,7 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
   } else if block_type == "Duct" {
     let recDir;
     if version >= 1 {
-      recDir = read_byte(data);
+      recDir = reader.byte();
     }
     //let result = {
     //  recDir
@@ -252,51 +252,51 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
   } else if block_type == "DuctRouter" {
     let sitem;
     if version >= 1 {
-      sitem = read_short(data);
+      sitem = reader.short();
     }
     //let result = {
     //  sitem
     //}
     //return result
   } else if block_type == "DirectionalUnloader"{
-    let id = read_short(data);
-    let off = read_short(data);
+    let id = reader.short();
+    let off = reader.short();
     //let result = {
     //  id,
     //  off
     //}
     //return result
   } else if block_type == "UnitCargoLoader" {
-    let unitid = read_int(data);
+    let unitid = reader.int();
     //let result = {
     //  unitid
     //}
     //return result
   } else if block_type == "UnitCargoUnloadPoint" {
-    let item = read_short(data);
-    let stale = read_byte(data);
+    let item = reader.short();
+    let stale = reader.byte();
     //let result = {
     //  item,
     //  stale
     //}
     //return result
   } else if block_type == "NuclearReactor" || block_type == "ImpactReactor" || block_type == "VariableReactor" {
-    let peff = read_float(data);
+    let peff = reader.float();
     let gentime;
     if version >= 1 {
-      gentime = read_float(data);
+      gentime = reader.float();
     }
     let heat;
     let warmup;
     let instability;
     if block_type == "NuclearReactor" || block_type == "VariableReactor" {
-      heat = read_float(data);
+      heat = reader.float();
     }
     if block_type == "VariableReactor" {
-      instability = read_float(data);
+      instability = reader.float();
     }
     if block_type == "ImpactReactor" || block_type == "VariableReactor"{
-      warmup = read_float(data);
+      warmup = reader.float();
     }
     //let result = {
     //  peff,
@@ -307,7 +307,7 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "HeaterGenerator" {
-    let heat = read_float(data);
+    let heat = reader.float();
     //let result = {
     //  heat
     //}
@@ -318,11 +318,11 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     let time;
     if version >= 1 {
       if block_type == "Drill" || block_type == "BurstDrill" {
-        progress = read_float(data);
+        progress = reader.float();
       } else {
-        time = read_float(data);
+        time = reader.float();
       }
-      warmup = read_float(data);
+      warmup = reader.float();
     }
     //let result = {
     //  progress,
@@ -333,22 +333,22 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
   } else if block_type == "Unloader" {
     let id;
     if version == 1 {
-      id = read_short(data);
+      id = reader.short();
     } else {
-      /*id =*/ read_byte(data);
+      /*id =*/ reader.byte();
     }
     //let result = {
     //  id
     //}
     //return result
   } else if block_type == "ItemTurret" {
-    let reloadc = read_float(data);
-    let rotation = read_float(data);
+    let reloadc = reader.float();
+    let rotation = reader.float();
     //let ammo = []
-    let amount = read_byte(data);
+    let amount = reader.byte();
     for i in 0..amount {
-      let item = read_short(data);
-      let a = read_short(data);
+      let item = reader.short();
+      let a = reader.short();
       //ammo[i] = [item, a]
     }
     //let result = {
@@ -358,7 +358,7 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "TractorBeamTurret" || block_type == "PointDefenseTurret" {
-    let rotation = read_float(data);
+    let rotation = reader.float();
     //let result = {
     //  rotation
     //}
@@ -367,39 +367,39 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     let reloadc;
     let rotation;
     if version >= 1 {
-      reloadc = read_float(data);
-      rotation = read_float(data);
+      reloadc = reader.float();
+      rotation = reader.float();
     }
     let ll;
     if version >= 3 {
-      ll = read_float(data);
+      ll = reader.float();
     }
     //let result = {
     //  ll
     //}
     //return result
   } else if block_type == "UnitFactory" || block_type == "Reconstructor" {
-    let px = read_float(data);
-    let py = read_float(data);
-    let prot = read_float(data);
-    let payload = read_payload(data, content_map);
+    let px = reader.float();
+    let py = reader.float();
+    let prot = reader.float();
+    let payload = read_payload(reader, content_map);
     let progress;
     if block_type == "UnitFactory" {
-      progress = read_float(data);
+      progress = reader.float();
     } else if version >= 1 {
-      progress = read_float(data);
+      progress = reader.float();
     }
     let currentplan;
     if block_type == "UnitFactory" {
-      currentplan = read_short(data);
+      currentplan = reader.short();
     }
     let commandpos;
     let command;
     if version >= 2 {
-      commandpos = read_vec2_nullable(data);
+      commandpos = read_vec2_nullable(reader);
     }
     if version >= 3 {
-      command = read_command(data);
+      command = read_command(reader);
     }
     //let result = {
     //  px,
@@ -413,27 +413,27 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "RepairTurret" {
-    let rotation = read_float(data);
+    let rotation = reader.float();
     //let result = {
     //  rotation
     //}
     //return result
   } else if block_type == "UnitAssembler" {
-    let px = read_float(data);
-    let py = read_float(data);
-    let prot = read_float(data);
-    let payload = read_payload(data, content_map);
-    let progress = read_float(data);
-    let count = read_byte(data);
+    let px = reader.float();
+    let py = reader.float();
+    let prot = reader.float();
+    let payload = read_payload(reader, content_map);
+    let progress = reader.float();
+    let count = reader.byte();
     //let units = [];
     for i in 0..count {
-      let unit = read_int(data);
+      let unit = reader.int();
       //units.push(unit)
     }
-    let pay = read_payload_seq(data);
+    let pay = read_payload_seq(reader);
     let commandpos;
     if version >= 2 {
-      commandpos = read_vec2_nullable(data);
+      commandpos = read_vec2_nullable(reader);
     }
     //let result = {
     //  px,
@@ -447,15 +447,15 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "PayloadConveyor" || block_type == "PayloadRouter" {
-    let progress = read_float(data);
-    let itemrotation = read_float(data);
-    let item = read_payload(data, content_map);
+    let progress = reader.float();
+    let itemrotation = reader.float();
+    let item = read_payload(reader, content_map);
     let sort;
     let recdir;
     if block_type == "PayloadRouter" {
-      let ctype = read_byte(data);
-      sort = read_short(data);
-      recdir = read_byte(data);
+      let ctype = reader.byte();
+      sort = reader.short();
+      recdir = reader.byte();
     }
     //let result = {
     //  progress,
@@ -466,17 +466,17 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "PayloadMassDriver" {
-    let px = read_float(data);
-    let py = read_float(data);
-    let prot = read_float(data);
-    let payload = read_payload(data, content_map);
-    let link = read_int(data);
-    let rotation = read_float(data);
-    let state = read_byte(data);
-    let reloadc = read_float(data);
-    let charge = read_float(data);
-    let loaded = read_byte(data);
-    let charging = read_byte(data);
+    let px = reader.float();
+    let py = reader.float();
+    let prot = reader.float();
+    let payload = read_payload(reader, content_map);
+    let link = reader.int();
+    let rotation = reader.float();
+    let state = reader.byte();
+    let reloadc = reader.float();
+    let charge = reader.float();
+    let loaded = reader.byte();
+    let charging = reader.byte();
     //let result = {
     //  px,
     //  py,
@@ -492,15 +492,15 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "PayloadDeconstructor" {
-    let px = read_float(data);
-    let py = read_float(data);
-    let prot = read_float(data);
-    let payload = read_payload(data, content_map);;
-    let progress = read_float(data);
-    let accums = read_short(data);
+    let px = reader.float();
+    let py = reader.float();
+    let prot = reader.float();
+    let payload = read_payload(reader, content_map);;
+    let progress = reader.float();
+    let accums = reader.short();
     //let accum = [];
     for i in 0..accums {
-      /*accum[i] =*/ read_float(data);
+      /*accum[i] =*/ reader.float();
     }
     //let decp;
     //[decp, offset] = rpl(buf, offset);
@@ -515,12 +515,12 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "Constructor" {
-    let px = read_float(data);
-    let py = read_float(data);
-    let prot = read_float(data);
-    let payload = read_payload(data, content_map);;
-    let progress = read_float(data);
-    let rec = read_short(data);
+    let px = reader.float();
+    let py = reader.float();
+    let prot = reader.float();
+    let payload = read_payload(reader, content_map);;
+    let progress = reader.float();
+    let rec = reader.short();
     //let result = {
     //  px,
     //  py,
@@ -531,11 +531,11 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "PayloadLoader" {
-    let px = read_float(data);
-    let py = read_float(data);
-    let prot = read_float(data);
-    let payload = read_payload(data, content_map);
-    let exporting = read_byte(data);
+    let px = reader.float();
+    let py = reader.float();
+    let prot = reader.float();
+    let payload = read_payload(reader, content_map);
+    let exporting = reader.byte();
     //let result = {
     //  px,
     //  py,
@@ -545,24 +545,24 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "ItemSource" {
-    let item = read_short(data);
+    let item = reader.short();
     //let result = {
     //  item
     //}
     //return result
   } else if block_type == "LiquidSource" {
-    let id = read_short(data);
+    let id = reader.short();
     //let result = {
     //  id
     //}
     //return result
   } else if block_type == "PayloadSource" {
-    let px = read_float(data);
-    let py = read_float(data);
-    let prot = read_float(data);
-    let payload = read_payload(data, content_map);
-    let unit = read_short(data);
-    let block = read_short(data);
+    let px = reader.float();
+    let py = reader.float();
+    let prot = reader.float();
+    let payload = read_payload(reader, content_map);
+    let unit = reader.short();
+    let block = reader.short();
     //let result = {
     //  px,
     //  py,
@@ -573,62 +573,62 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "LightBlock" {
-    let color = read_int(data);
+    let color = reader.int();
     //let result = {
     //  color
     //}
     //return result
   } else if block_type == "LaunchPad" {
-    let lc = read_float(data);
+    let lc = reader.float();
     //let result = {
     //  lc
     //}
     //return result
   } else if block_type == "Accelerator" {
-    let progress = read_float(data);
+    let progress = reader.float();
     //let result = {
     //  progress
     //}
     //return result
   } else if block_type == "MessageBlock" {
-    let str = read_string(data);
+    let str = read_string(reader);
     //let result = {
     //  str
     //}
     //return result
   } else if block_type == "SwitchBlock" {
-    let en = read_byte(data);
+    let en = reader.byte();
     //let result = {
     //  en
     //}
     //return result
   } else if block_type == "ConsumeGenerator" || block_type == "ThermalGenerator" || block_type == "SolarGenerator" {
-    let pe = read_float(data);
-    let gentime = read_float(data);
+    let pe = reader.float();
+    let gentime = reader.float();
     //let result = {
     //  pe,
     //  gentime
     //}
     //return result
   } else if block_type == "StackRouter" {
-    let sortitem = read_short(data);
+    let sortitem = reader.short();
     //let result = {
     //  sortitem
     //}
     //return result
   } else if block_type == "LiquidTurret" || block_type == "PowerTurret" || block_type == "LaserTurret" {
-    let reloadc = read_float(data);
-    let rotation = read_float(data);
+    let reloadc = reader.float();
+    let rotation = reader.float();
     //let result = {
     //  reloadc,
     //  rotation
     //}
     //return result
   } else if block_type == "UnitAssemblerModule" {
-    let px = read_float(data);
-    let py = read_float(data);
-    let prot = read_float(data);
-    let payload = read_payload(data, content_map);
+    let px = reader.float();
+    let py = reader.float();
+    let prot = reader.float();
+    let payload = read_payload(reader, content_map);
     //let result = {
     //  px,
     //  py,
@@ -637,10 +637,10 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
     //return result
   } else if block_type == "MemoryBlock" {
-    let amount = read_int(data);
+    let amount = reader.int();
     //let memory = [];
     for i in 0..amount {
-      let value = read_double(data);
+      let value = reader.double();
       //memory[i] = value
     }
     //let result = {
@@ -649,12 +649,12 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //return result
   } else if block_type == "LogicDisplay" {
     if version >= 1 {
-      let has_transform = read_bool(data);
+      let has_transform = reader.bool();
       println!("{has_transform} {version}");
       //let map = [];
       if has_transform {
         for i in 0..9 {
-          let val = read_float(data);
+          let val = reader.float();
           //map[i] = val
         }
       }
@@ -665,36 +665,36 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     }
   } else if block_type == "LogicBlock" {
     if version >= 1 {
-      let compl = read_int(data);
+      let compl = reader.int();
       //byte[] bytes = new byte[compl];
-      data.drain(..compl as usize);
+      reader.bytes(compl as usize);
       //readCompressed(bytes, false);
     } else {
-      let code = read_string(data);
+      let code = read_string(reader);
       //links.clear();
-      let total = read_short(data);
+      let total = reader.short();
       for _ in 0..total {
-        read_int(data);
+        reader.int();
       }
     }
 
-    let varcount = read_int(data);
+    let varcount = reader.int();
 
     //variables need to be temporarily stored in an array until they can be used
     //String[] names = new String[varcount];
     //Object[] values = new Object[varcount];
 
     for i in 0..varcount {
-      let name = read_string(data);
-      /*Object value =*/ read_object_boxed(data, true);
+      let name = read_string(reader);
+      /*Object value =*/ read_object_boxed(reader, true);
 
       //names[i] = name;
       //values[i] = value;
     }
 
-    let memory = read_int(data);
+    let memory = reader.int();
     //skip memory, it isn't used anymore
-    data.drain(0..(memory * 8) as usize);
+    reader.bytes((memory * 8) as usize);
 
     //loadBlock = () -> updateCode(code, false, asm -> {
     //  //load up the variables that were stored
@@ -720,30 +720,30 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //}
 
     if version >= 3 {
-      let tag = read_prefixed_string(data);
-      let iconTag = read_short(data);
+      let tag = read_prefixed_string(reader);
+      let iconTag = reader.short();
     }
   } else if block_type == "CanvasBlock" {
-    let length = read_int(data);
-    let bytes = data.drain(..length as usize).collect::<Vec<u8>>();
+    let length = reader.int();
+    let bytes = reader.bytes(length as usize);
     //let result = {
     //  data
     //}
     //return result
   } else if block_type.starts_with("Build") {
-    let progress = read_float(data);
-    let pid = read_short(data);
-    let rid = read_short(data);
-    let acsize = read_byte(data);
+    let progress = reader.float();
+    let pid = reader.short();
+    let rid = reader.short();
+    let acsize = reader.byte();
     //let acc = []
     //let totalacc = []
     //let itemsLeft = []
     if acsize != 255 {
       for i in 0..acsize {
-        /*acc[i] =*/ read_float(data);
-        /*totalacc[i] =*/ read_float(data);
+        /*acc[i] =*/ reader.float();
+        /*totalacc[i] =*/ reader.float();
         if version >= 1 {
-          /*itemsLeft[i] =*/ read_int(data);
+          /*itemsLeft[i] =*/ reader.int();
         }
       }
     }
@@ -761,13 +761,13 @@ fn read_main(data: &mut Vec<u8>, block_type: String, version: u8, content_map: &
     //return null
   }
 }
-fn read_payload_seq(data: &mut Vec<u8>) {
-  let amount = read_short(data);
+fn read_payload_seq(reader: &mut Reader) {
+  let amount = reader.short();
   //let ent = []
   for i in 0..(-1 * amount as i16) {
-    let payload_type = read_byte(data);
-    let entr = read_short(data);
-    let count = read_int(data);
+    let payload_type = reader.byte();
+    let entr = reader.short();
+    let count = reader.int();
   }
   //return ent
 }
@@ -785,15 +785,15 @@ struct BlockBaseData {
   liquids: Option<HashMap<u16, u32>>,
   power: Option<BlockPowerData>,
 }
-fn read_base_block_data(data: &mut Vec<u8>, id: String) -> BlockBaseData {
+fn read_base_block_data(reader: &mut Reader, id: String) -> BlockBaseData {
   let block_params = load_block_params();
 
-  let health = read_float(data);
+  let health = reader.float();
 
-  let rotation_byte = read_byte(data);
+  let rotation_byte = reader.byte();
   let rotation = rotation_byte & 0b01111111;
 
-  let team = read_byte(data);
+  let team = reader.byte();
   let mut version = 0;
 
   let mut legacy = true;
@@ -805,37 +805,37 @@ fn read_base_block_data(data: &mut Vec<u8>, id: String) -> BlockBaseData {
   }
 
   if (rotation_byte & 0b10000000) != 0 {
-    version = read_byte(data);
+    version = reader.byte();
     if version >= 1 {
-      on = Some(read_byte(data));
+      on = Some(reader.byte());
     }
     if version >= 2 {
-      module_bitmask = read_byte(data);
+      module_bitmask = reader.byte();
     }
     legacy = false;
   }
 
   let items = if (module_bitmask & 1) != 0 {
-    Some(read_block_items(data, legacy))
+    Some(read_block_items(reader, legacy))
   } else { None };
 
   let power= if (module_bitmask & 2) != 0 {
-    Some(read_block_power(data))
+    Some(read_block_power(reader))
   } else { None };
 
   let liquids= if (module_bitmask & 4) != 0 {
-    Some(read_block_liquids(data, legacy))
+    Some(read_block_liquids(reader, legacy))
   } else { None };
 
   if version <= 2 {
-    read_byte(data);
+    reader.byte();
   }
 
   let eff;
   let opteff;
   if version >= 3 {
-    eff = read_byte(data);
-    opteff = read_byte(data);
+    eff = reader.byte();
+    opteff = reader.byte();
   }
 
   BlockBaseData {
@@ -865,41 +865,41 @@ fn get_module_bitmask(id: String, block_parms: HashMap<String, BlockParam>) -> u
   a | b | c | 8
 }
 
-fn read_block_items(data: &mut Vec<u8>, legacy: bool) -> HashMap<u16, u32> {
+fn read_block_items(reader: &mut Reader, legacy: bool) -> HashMap<u16, u32> {
   let count = if legacy {
-    read_byte(data) as u16
+    reader.byte() as u16
   } else {
-    read_short(data)
+    reader.short()
   };
 
   let mut items = HashMap::new();
   for _ in 0..count {
     let item_id = if legacy {
-      read_byte(data) as u16
+      reader.byte() as u16
     } else {
-      read_short(data)
+      reader.short()
     };
-    let item_amount = read_int(data);
+    let item_amount = reader.int();
     items.insert(item_id, item_amount);
   }
   items
 }
 
-fn read_block_liquids(data: &mut Vec<u8>, legacy: bool) -> HashMap<u16, u32> {
+fn read_block_liquids(reader: &mut Reader, legacy: bool) -> HashMap<u16, u32> {
   let count = if legacy {
-    read_byte(data) as u16
+    reader.byte() as u16
   } else {
-    read_short(data)
+    reader.short()
   };
 
   let mut liquids = HashMap::new();
   for _ in 0..count {
     let liquid_id = if legacy {
-      read_byte(data) as u16
+      reader.byte() as u16
     } else {
-      read_short(data)
+      reader.short()
     };
-    let liquid_amount = read_int(data);
+    let liquid_amount = reader.int();
     liquids.insert(liquid_id, liquid_amount);
   }
   liquids
@@ -910,23 +910,23 @@ struct BlockPowerData {
   links: Vec<u32>,
   status: f32,
 }
-fn read_block_power(data: &mut Vec<u8>) -> BlockPowerData {
-  let amount = read_short(data);;
+fn read_block_power(reader: &mut Reader) -> BlockPowerData {
+  let amount = reader.short();;
   let mut links = vec![];
 
   for _ in 0..amount {
-    let link  = read_int(data);
+    let link  = reader.int();
     links.push(link)
   }
 
-  let status = read_float(data);;
+  let status = reader.float();
 
   BlockPowerData { links, status }
 }
 
-pub fn readAll(data: &mut Vec<u8>, id: String, block_type: String, version: u8, content_map:  &HashMap<String, Vec<String>>) {
-  let base = read_base_block_data(data, id);
+pub fn readAll(reader: &mut Reader, id: String, block_type: String, version: u8, content_map:  &HashMap<String, Vec<String>>) {
+  let base = read_base_block_data(reader, id);
 
-  let main = read_main(data, block_type, version, content_map);
+  let main = read_main(reader, block_type, version, content_map);
   //return [base, main]
 }

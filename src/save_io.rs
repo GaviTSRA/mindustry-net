@@ -3,7 +3,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use colored::{Color, Colorize};
 use serde::Deserialize;
 use crate::block_io::readAll;
-use crate::type_io::{read_bool, read_byte, read_int, read_short, read_string};
+use crate::type_io::{read_string, Reader};
 
 pub fn load_block_types() -> HashMap<String, String> {
   let data = include_str!("data/block_types.json");
@@ -33,19 +33,19 @@ fn load_content_types() -> Vec<String> {
   serde_json::from_str::<ContentTypes>(data).unwrap().content_types
 }
 
-pub fn read_content_header(mut data: &mut Vec<u8>) -> HashMap<String, Vec<String>> {
+pub fn read_content_header(reader: &mut Reader) -> HashMap<String, Vec<String>> {
   let mut result = HashMap::new();
   let content_types = load_content_types();
 
-  let mapped = read_byte(&mut data);
+  let mapped = reader.byte();
   for _ in 0..mapped {
-    let content_type_index = read_byte(&mut data);
+    let content_type_index = reader.byte();
     let content_type = content_types.get(content_type_index as usize).unwrap().clone();
     let mut sub_result = vec![];
 
-    let count = read_short(&mut data);
+    let count = reader.short();
     for _ in 0..count {
-      let name = read_string(&mut data).unwrap();
+      let name = read_string(reader).unwrap();
       sub_result.push(name);
     }
 
@@ -129,9 +129,9 @@ impl Map {
   }
 }
 
-pub fn read_map(mut data: &mut Vec<u8>, content_map: &HashMap<String, Vec<String>>) {
-  let width = read_short(&mut data) as u32;
-  let height = read_short(&mut data) as u32;
+pub fn read_map(mut reader: &mut Reader, content_map: &HashMap<String, Vec<String>>) {
+  let width = reader.short() as u32;
+  let height = reader.short() as u32;
   println!("{width} x {height}");
 
   let block_types = load_block_types();
@@ -143,9 +143,9 @@ pub fn read_map(mut data: &mut Vec<u8>, content_map: &HashMap<String, Vec<String
   while i < (width * height) {
     let x = i % width;
     let y = i / width;
-    let floor_id = read_short(&mut data);
-    let ore_id = read_short(&mut data);
-    let consecutive_count = read_byte(&mut data);
+    let floor_id = reader.short();
+    let ore_id = reader.short();
+    let consecutive_count = reader.byte();
     //if(content.block(floorid) == Blocks.air) floorid = Blocks.stone.id; TODO
 
     map.set_floor(x, y, floor_id);
@@ -176,12 +176,12 @@ pub fn read_map(mut data: &mut Vec<u8>, content_map: &HashMap<String, Vec<String
     let x = i % width;
     let y = i / width;
 
-    let block_id = read_short(&mut data);
+    let block_id = reader.short();
     //Block block = content.block(stream.readShort());
     //Tile tile = context.tile(i);
     //if(block == null) block = Blocks.air;
     let mut is_center = true;
-    let packed_check = read_byte(&mut data);
+    let packed_check = reader.byte();
     let had_entity = (packed_check & 1) != 0;
     let had_data = (packed_check & 4) != 0;
 
@@ -191,14 +191,14 @@ pub fn read_map(mut data: &mut Vec<u8>, content_map: &HashMap<String, Vec<String
     let mut extra_data = 0;
 
     if had_data {
-      tile_data = read_byte(&mut data);
-      floor_data = read_byte(&mut data);
-      overlay_data = read_byte(&mut data);
-      extra_data = read_int(&mut data);
+      tile_data = reader.byte();
+      floor_data = reader.byte();
+      overlay_data = reader.byte();
+      extra_data = reader.int();
     }
 
     if had_entity {
-      is_center = read_bool(&mut data);
+      is_center = reader.bool();
     }
 
     //set block only if this is the center; otherwise, it's handled elsewhere
@@ -220,16 +220,16 @@ pub fn read_map(mut data: &mut Vec<u8>, content_map: &HashMap<String, Vec<String
     if had_entity {
       if is_center {
         //only read entity for center blocks
-        let length = read_short(&mut data);
+        let length = reader.short();
 
-        let data_length_before = data.len();
+        let data_length_before = reader.remaining();
 
-        let version = read_byte(&mut data);
+        let version = reader.byte();
         let block_name = content_map.get("block").unwrap().get(block_id as usize).unwrap();
         let block_type = block_types.get(block_name).unwrap();
-        let building = readAll(&mut data, block_name.clone(), block_type.clone(), version, content_map);
+        let building = readAll(&mut reader, block_name.clone(), block_type.clone(), version, content_map);
 
-        let data_read = (data_length_before - data.len()) as u64;
+        let data_read = (data_length_before - reader.remaining()) as u64;
         if data_read != length as u64 {
           panic!("Block parsing failed trying to parse {block_name} ({block_type}) at [{x},{y}]:\nread {data_read} bytes instead of {length}")
         }
@@ -254,7 +254,7 @@ pub fn read_map(mut data: &mut Vec<u8>, content_map: &HashMap<String, Vec<String
       }
     } else if !had_data {
       //never read consecutive blocks if there's data
-      let consecutive_count = read_byte(&mut data);
+      let consecutive_count = reader.byte();
       let mut j = i + 1;
       while j < i + 1 + consecutive_count as u32 {
         let new_x = j % width;

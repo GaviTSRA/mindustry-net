@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use phf::phf_map;
 use crate::block_io::readAll;
 use crate::save_io::load_block_types;
-use crate::type_io::{read_bool, read_byte, read_double, read_float, read_int, read_items, read_object, read_prefixed_string, read_short, read_tile, read_unit, read_vec2, write_byte, write_int, write_object, write_short, write_tile, Items, Object, Tile, Unit, Vec2};
+use crate::type_io::{read_items, read_object, read_prefixed_string, read_tile, read_unit, read_vec2, write_byte, write_int, write_object, write_short, write_tile, Items, Object, Reader, Tile, Unit, Vec2};
 
 static UNIT_MAP: phf::Map<u8, &'static str> = phf_map! {
     0u8 => "UnitEntity",
@@ -43,11 +43,11 @@ static UNIT_MAP: phf::Map<u8, &'static str> = phf_map! {
     46u8 => "CrawlUnit",
 };
 
-pub fn read_abilities(buf: &mut Vec<u8>) -> Vec<f32> {
-  let length = read_byte(buf);
+pub fn read_abilities(reader: &mut Reader) -> Vec<f32> {
+  let length = reader.byte();
   let mut abilities = vec![];
   for _ in 0..length {
-    let data = read_float(buf);
+    let data = reader.float();
     abilities.push(data);
   }
   abilities
@@ -64,9 +64,9 @@ pub struct Plan {
   pub config: Option<Object>
 }
 
-pub fn read_plan(buf: &mut Vec<u8>) -> Plan {
-  let plan_type = read_byte(buf);
-  let position = read_tile(buf);
+pub fn read_plan(reader: &mut Reader) -> Plan {
+  let plan_type = reader.byte();
+  let position = read_tile(reader);
 
   if plan_type == 1 {
     Plan {
@@ -78,10 +78,10 @@ pub fn read_plan(buf: &mut Vec<u8>) -> Plan {
       config: None
     }
   } else {
-    let block = read_short(buf);
-    let rotation = read_byte(buf);
-    let has_config = read_byte(buf) != 0;
-    let config = read_object(buf);
+    let block = reader.short();
+    let rotation = reader.byte();
+    let has_config = reader.byte() != 0;
+    let config = read_object(reader);
     Plan {
       plan_type,
       position,
@@ -93,11 +93,11 @@ pub fn read_plan(buf: &mut Vec<u8>) -> Plan {
   }
 }
 
-pub fn read_plans(buf: &mut Vec<u8>) -> Vec<Plan> {
+pub fn read_plans(reader: &mut Reader) -> Vec<Plan> {
   let mut plans = vec![];
-  let plan_count = read_int(buf);
+  let plan_count = reader.int();
   for _ in 0..plan_count {
-    plans.push(read_plan(buf));
+    plans.push(read_plan(reader));
   }
   plans
 }
@@ -128,17 +128,17 @@ pub struct Status {
   time: f32,
 }
 
-pub fn read_status(buf: &mut Vec<u8>) -> Status {
-  let id = read_short(buf);
-  let time = read_float(buf);
+pub fn read_status(reader: &mut Reader) -> Status {
+  let id = reader.short();
+  let time = reader.float();
   Status { id, time }
 }
 
-pub fn read_statuses(buf: &mut Vec<u8>) -> Vec<Status> {
+pub fn read_statuses(reader: &mut Reader) -> Vec<Status> {
   let mut statuses = vec![];
-  let status_count = read_int(buf);
+  let status_count = reader.int();
   for _ in 0..status_count {
-    let status = read_status(buf);
+    let status = read_status(reader);
     statuses.push(status);
   }
   statuses
@@ -151,13 +151,13 @@ pub struct Mount {
   y: f32
 }
 
-pub fn read_mounts(buf: &mut Vec<u8>) -> Vec<Mount> {
+pub fn read_mounts(reader: &mut Reader) -> Vec<Mount> {
   let mut mounts = vec![];
-  let amount = read_byte(buf) as usize;
+  let amount = reader.byte() as usize;
   for _ in 0..amount {
-    let state = read_byte(buf);
-    let x = read_float(buf);
-    let y = read_float(buf);
+    let state = reader.byte();
+    let x = reader.float();
+    let y = reader.float();
     mounts.push(Mount { state, x, y });
   }
   mounts
@@ -169,40 +169,40 @@ pub fn read_mounts(buf: &mut Vec<u8>) -> Vec<Mount> {
 pub struct Controller {}
 
 // TODO
-pub fn read_controller(buf: &mut Vec<u8>) -> Controller {
-  let controller_type = read_byte(buf);
+pub fn read_controller(reader: &mut Reader) -> Controller {
+  let controller_type = reader.byte();
 
   match controller_type {
     0 => {
-      read_int(buf);
+      reader.int();
     },
     1 => {
-      buf.drain(..4);
+      reader.bytes(4);
     },
     3 => {
-      read_int(buf);
+      reader.int();
     }
     4 | 6 | 7 | 8 => {
-      let has_attack = read_byte(buf) != 0;
-      let has_pos = read_byte(buf) != 0;
+      let has_attack = reader.byte() != 0;
+      let has_pos = reader.byte() != 0;
 
       let mut x = None;
       let mut y = None;
       if has_pos {
-        x = Some(read_float(buf));
-        y = Some(read_float(buf));
+        x = Some(reader.float());
+        y = Some(reader.float());
       }
 
       let mut entity_type = None;
       let mut attack = None;
       if has_attack {
-        entity_type = Some(read_byte(buf));
-        attack = Some(read_int(buf));
+        entity_type = Some(reader.byte());
+        attack = Some(reader.int());
       }
 
       let mut id = None;
       if controller_type == 6 || controller_type == 7 || controller_type == 8 {
-        id = Some(read_byte(buf));
+        id = Some(reader.byte());
       }
 
       let mut attack_info_build = None;
@@ -211,25 +211,25 @@ pub fn read_controller(buf: &mut Vec<u8>) -> Controller {
       let mut attack_info_vec_y = None;
       let mut final_controller_type = vec![];
       if controller_type == 7 ||controller_type == 8 {
-        let length = read_byte(buf);
+        let length = reader.byte();
         for _ in 0..length {
-          let controller_type2 = read_byte(buf);
+          let controller_type2 = reader.byte();
           final_controller_type.push(controller_type2);
 
           if controller_type2 == 0 {
-            attack_info_build = Some(read_int(buf));
+            attack_info_build = Some(reader.int());
           } else if controller_type2 == 1 {
-            attack_info_unit = Some(read_int(buf));
+            attack_info_unit = Some(reader.int());
           } else if controller_type2 == 2 {
-            attack_info_vec_x = Some(read_float(buf));
-            attack_info_vec_y = Some(read_float(buf));
+            attack_info_vec_x = Some(reader.float());
+            attack_info_vec_y = Some(reader.float());
           }
         }
       }
 
       let mut stance = None;
       if controller_type == 8 {
-        let byte = read_byte(buf);
+        let byte = reader.byte();
         if byte == 255 {
           stance = Some(None)
         } else {
@@ -260,36 +260,36 @@ pub fn read_controller(buf: &mut Vec<u8>) -> Controller {
 pub struct Payload {}
 
 // TODO
-pub fn read_payload(data: &mut Vec<u8>, content_map: &HashMap<String, Vec<String>>) -> Option<Payload> {
-  let ex = read_bool(data);
+pub fn read_payload(reader: &mut Reader, content_map: &HashMap<String, Vec<String>>) -> Option<Payload> {
+  let ex = reader.bool();
   if !ex {
     return None
   }
   
-  let payload_type = read_byte(data);
+  let payload_type = reader.byte();
   if payload_type == 1 {
     let block_types = load_block_types();
     
-    let id = read_short(data);
-    let version = read_byte(data);
+    let id = reader.short();
+    let version = reader.byte();
     let block_name = content_map.get("block").unwrap().get(id as usize).unwrap();
     let block_type = block_types.get(block_name).unwrap();
-    let block = readAll(data, block_name.clone(), block_type.clone(), version, content_map);
+    let block = readAll(reader, block_name.clone(), block_type.clone(), version, content_map);
     //return [id, block]
   } else {
-    let unit = read_unit(data);
+    let unit = read_unit(reader);
     //return unit
   }
   
   Some(Payload {})
 }
 
-pub fn read_payloads(buf: &mut Vec<u8>, content_map: &HashMap<String, Vec<String>>) -> Vec<Payload> {
+pub fn read_payloads(reader: &mut Reader, content_map: &HashMap<String, Vec<String>>) -> Vec<Payload> {
   let mut payloads = vec![];
 
-  let amount = read_int(buf);
+  let amount = reader.int();
   for _ in 0..amount {
-    let payload = read_payload(buf, content_map).unwrap();
+    let payload = read_payload(reader, content_map).unwrap();
     payloads.push(payload)
   }
 
@@ -381,10 +381,10 @@ pub enum FullUnit {
   Unknown
 }
 
-pub fn read_full_unit(buf: &mut Vec<u8>, type_id: u8, has_revision: bool, content_map: &Option<HashMap<String, Vec<String>>>) -> FullUnit {
+pub fn read_full_unit(reader: &mut Reader, type_id: u8, has_revision: bool, content_map: &Option<HashMap<String, Vec<String>>>) -> FullUnit {
   let mut revision = None;
   if has_revision {
-    revision = Some(read_short(buf));
+    revision = Some(reader.short());
   }
 
   let unit_type = UNIT_MAP.get(&type_id).unwrap();
@@ -393,56 +393,56 @@ pub fn read_full_unit(buf: &mut Vec<u8>, type_id: u8, has_revision: bool, conten
       unit_type == &"TankUnit" || unit_type == &"UnitEntity" || unit_type == &"BlockUnitUnit" ||
       unit_type == &"UnitWaterMove" || unit_type == &"LegsUnit" || unit_type == &"TimedKillUnit" ||
       unit_type == &"PayloadUnit" || unit_type == &"BuildingTetherPayloadUnit" {
-    let abilities = read_abilities(buf);
-    let ammo = read_float(buf);
+    let abilities = read_abilities(reader);
+    let ammo = reader.float();
 
     let mut building = None;
     if unit_type == &"BuildingTetherPayloadUnit" {
-      building = Some(read_int(buf));
+      building = Some(reader.int());
     }
 
     let mut base_rotation = None;
     if unit_type == &"MechUnit" {
-      base_rotation = Some(read_float(buf));
+      base_rotation = Some(reader.float());
     }
 
-    let controller = read_controller(buf);
-    let elevation = read_float(buf); // TODO check if 'elv' really is elevation
-    let flag = read_double(buf);
-    let health = read_float(buf);
-    let shooting = read_byte(buf) != 0;
+    let controller = read_controller(reader);
+    let elevation = reader.float(); // TODO check if 'elv' really is elevation
+    let flag = reader.double();
+    let health = reader.float();
+    let shooting = reader.byte() != 0;
 
     let mut lifetime = None;
     if unit_type == &"TimedKillUnit" {
-      lifetime = Some(read_float(buf));
+      lifetime = Some(reader.float());
     }
 
-    let mining_position = read_tile(buf);
-    let mounts = read_mounts(buf);
+    let mining_position = read_tile(reader);
+    let mounts = read_mounts(reader);
 
     let mut payloads = None;
     if unit_type == &"PayloadUnit" || unit_type == &"BuildingTetherPayloadUnit" {
-      payloads = Some(read_payloads(buf, &content_map.clone().expect("Received unit data before content map was set and no default map is present")));
+      payloads = Some(read_payloads(reader, &content_map.clone().expect("Received unit data before content map was set and no default map is present")));
     }
 
-    let plans = read_plans(buf);
-    let rotation = read_float(buf);
-    let shield = read_float(buf);
-    let spawned_by_core = read_byte(buf) != 0; // TODO check if 'spbycore' really is spawned_by_core
-    let items = read_items(buf);
-    let statuses = read_statuses(buf);
-    let team = read_byte(buf);
+    let plans = read_plans(reader);
+    let rotation = reader.float();
+    let shield = reader.float();
+    let spawned_by_core = reader.byte() != 0; // TODO check if 'spbycore' really is spawned_by_core
+    let items = read_items(reader);
+    let statuses = read_statuses(reader);
+    let team = reader.byte();
 
     let mut time = None;
     if unit_type == &"TimedKillUnit" {
-      time = Some(read_float(buf));
+      time = Some(reader.float());
     }
 
-    let unit_type = read_short(buf); // TODO check if this is what 'utype' actually is
-    let upgrade_building = read_byte(buf); // TODO check what 'updbuilding' actually is
-    let velocity = read_vec2(buf);
-    let x = read_float(buf);
-    let y = read_float(buf);
+    let unit_type = reader.short(); // TODO check if this is what 'utype' actually is
+    let upgrade_building = reader.byte(); // TODO check what 'updbuilding' actually is
+    let velocity = read_vec2(reader);
+    let x = reader.float();
+    let y = reader.float();
 
     return FullUnit::GenericUnit {
       revision,
@@ -476,56 +476,56 @@ pub fn read_full_unit(buf: &mut Vec<u8>, type_id: u8, has_revision: bool, conten
   } else if unit_type == &"Fire" {
     return FullUnit::Fire {
       revision,
-      lifetime: read_float(buf),
-      tile: read_tile(buf),
-      time: read_float(buf),
-      x: read_float(buf),
-      y: read_float(buf),
+      lifetime: reader.float(),
+      tile: read_tile(reader),
+      time: reader.float(),
+      x: reader.float(),
+      y: reader.float(),
     };
   } else if unit_type == &"Puddle" {
     return FullUnit::Puddle {
       revision,
-      amount: read_float(buf),
-      liquid: read_short(buf),
-      tile: read_tile(buf),
-      x: read_float(buf),
-      y: read_float(buf),
+      amount: reader.float(),
+      liquid: reader.short(),
+      tile: read_tile(reader),
+      x: reader.float(),
+      y: reader.float(),
     };
   } else if unit_type == &"Player" {
     return FullUnit::Player {
       revision,
-      admin: read_byte(buf) != 0,
-      boosting: read_byte(buf) != 0,
-      color: read_int(buf),
-      mouse_x: read_float(buf),
-      mouse_y: read_float(buf),
-      name: read_prefixed_string(buf).unwrap(),
-      shooting: read_byte(buf) != 0,
-      team: read_byte(buf),
-      typing: read_byte(buf) != 0,
-      unit: read_unit(buf),
-      x: read_float(buf),
-      y: read_float(buf),
+      admin: reader.byte() != 0,
+      boosting: reader.byte() != 0,
+      color: reader.int(),
+      mouse_x: reader.float(),
+      mouse_y: reader.float(),
+      name: read_prefixed_string(reader).unwrap(),
+      shooting: reader.byte() != 0,
+      team: reader.byte(),
+      typing: reader.byte() != 0,
+      unit: read_unit(reader),
+      x: reader.float(),
+      y: reader.float(),
     };
   } else if unit_type == &"WeatherState" {
     return FullUnit::WeatherState {
       revision,
-      effect: read_float(buf),
-      intensity: read_float(buf),
-      life: read_float(buf),
-      opacity: read_float(buf),
-      weather: read_short(buf),
-      wind_x: read_float(buf),
-      wind_y: read_float(buf),
+      effect: reader.float(),
+      intensity: reader.float(),
+      life: reader.float(),
+      opacity: reader.float(),
+      weather: reader.short(),
+      wind_x: reader.float(),
+      wind_y: reader.float(),
     };
   } else if unit_type == &"WorldLabel" {
     return FullUnit::WorldLabel {
       revision,
-      flags: read_byte(buf),
-      fonts: read_float(buf),
-      str: read_prefixed_string(buf).unwrap(),
-      x: read_float(buf),
-      y: read_float(buf),
+      flags: reader.byte(),
+      fonts: reader.float(),
+      str: read_prefixed_string(reader).unwrap(),
+      x: reader.float(),
+      y: reader.float(),
     };
   }
 

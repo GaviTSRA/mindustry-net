@@ -1,96 +1,126 @@
 use std::collections::HashMap;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-pub fn read_byte(buf: &mut Vec<u8>) -> u8 {
-  buf.drain(..1).collect::<Vec<u8>>()[0]
+pub struct Reader {
+  buf: Vec<u8>,
+  pos: usize,
+}
+impl Reader {
+  pub fn new(buf: Vec<u8>) -> Reader {
+    Reader { buf, pos: 0 }
+  }
+
+  pub fn byte(&mut self) -> u8 {
+    let b = self.buf[self.pos];
+    self.pos += 1;
+    b
+  }
+
+  pub fn bool(&mut self) -> bool {
+    self.byte() == 1
+  }
+
+  pub fn bytes(&mut self, n: usize) -> Vec<u8> {
+    let end = (self.pos + n).min(self.buf.len());
+    let bytes = self.buf[self.pos..end].to_vec();
+    self.pos = end;
+    bytes
+  }
+
+  pub fn short(&mut self) -> u16 {
+    let bytes = self.bytes(2);
+    u16::from_be_bytes([bytes[0], bytes[1]])
+  }
+
+  pub fn int(&mut self) -> u32 {
+    let bytes = self.bytes(4);
+    u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+  }
+
+  pub fn long(&mut self) -> u64 {
+    let bytes = self.bytes(8);
+    u64::from_be_bytes([
+      bytes[0], bytes[1], bytes[2], bytes[3],
+      bytes[4], bytes[5], bytes[6], bytes[7],
+    ])
+  }
+
+  pub fn float(&mut self) -> f32 {
+    let bytes = self.bytes(4);
+    f32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+  }
+
+  pub fn double(&mut self) -> f64 {
+    let bytes = self.bytes(8);
+    f64::from_be_bytes([
+      bytes[0], bytes[1], bytes[2], bytes[3],
+      bytes[4], bytes[5], bytes[6], bytes[7],
+    ])
+  }
+
+  pub fn remaining(&self) -> usize {
+    self.buf.len().saturating_sub(self.pos)
+  }
+
+  pub fn read_remaining(&mut self) -> Vec<u8> {
+    let bytes = self.buf[self.pos..].to_vec();
+    self.pos = self.buf.len();
+    bytes
+  }
 }
 
 pub fn write_byte(buf: &mut Vec<u8>, value: u8) {
   buf.push(value);
 }
 
-pub fn read_bool(buf: &mut Vec<u8>) -> bool {
-  read_byte(buf) == 1
-}
-
 pub fn write_bool(buf: &mut Vec<u8>, value: bool) {
   buf.push(if value { 1 } else { 0 });
-}
-
-pub fn read_bytes(buf: &mut Vec<u8>) -> Vec<u8> {
-  let length = read_short(buf);
-  buf.drain(..length as usize).collect::<Vec<u8>>()
-}
-
-pub fn read_short(buf: &mut Vec<u8>) -> u16 {
-  let bytes = buf.drain(..2).collect::<Vec<_>>();
-  u16::from_be_bytes([bytes[0], bytes[1]])
 }
 
 pub fn write_short(buf: &mut Vec<u8>, short: u16) {
   buf.extend_from_slice(&short.to_be_bytes());
 }
 
-pub fn read_int(buf: &mut Vec<u8>) -> u32 {
-  let bytes = buf.drain(..4).collect::<Vec<_>>();
-  u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
-}
-
 pub fn write_int(buf: &mut Vec<u8>, int: u32) {
   buf.extend_from_slice(&int.to_be_bytes());
-}
-
-pub fn read_long(buf: &mut Vec<u8>) -> u64 {
-  let bytes = buf.drain(..8).collect::<Vec<_>>();
-  u64::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],  bytes[6], bytes[7]])
 }
 
 pub fn write_long(buf: &mut Vec<u8>, long: u64) {
   buf.extend_from_slice(&long.to_be_bytes());
 }
 
-pub fn read_float(buf: &mut Vec<u8>) -> f32 {
-  let bytes = buf.drain(..4).collect::<Vec<_>>();
-  f32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
-}
-
 pub fn write_float(buf: &mut Vec<u8>, data: f32) {
   buf.extend_from_slice(&data.to_be_bytes());
 }
 
-pub fn read_double(buf: &mut Vec<u8>) -> f64 {
-  let bytes = buf.drain(..8).collect::<Vec<_>>();
-  f64::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]])
-}
-
-pub fn read_prefixed_string(buf: &mut Vec<u8>) -> Option<String> {
-  if buf.is_empty() {
+pub fn read_prefixed_string(reader: &mut Reader) -> Option<String> {
+  if reader.remaining() == 0 {
     return None;
   }
 
-  let has_string = read_byte(buf) != 0;
+  let has_string = reader.byte() != 0;
   if !has_string {
     return None;
   }
 
-  if buf.len() < 2 {
+  if reader.remaining() < 2 {
     return None;
   }
-  let length = read_short(buf) as usize;
+  let length = reader.short() as usize;
 
-  if buf.len() < length {
+  if reader.remaining() < length {
     return None;
   }
-  let string_bytes: Vec<u8> = buf.drain(..length).collect();
+  let string_bytes: Vec<u8> = reader.bytes(length);
   String::from_utf8(string_bytes).ok()
 }
 
-pub fn read_string(buf: &mut Vec<u8>) -> Option<String> {
-  let length = read_short(buf);
+pub fn read_string(reader: &mut Reader) -> Option<String> {
+  let length = reader.short();
   if length == 0 {
     return None;
   }
-  let string_bytes: Vec<u8> = buf.drain(..length as usize).collect();
+  let string_bytes: Vec<u8> = reader.bytes(length as usize);
   String::from_utf8(string_bytes).ok()
 }
 
@@ -124,126 +154,126 @@ pub enum Object {
   NotImplemented
 }
 
-pub fn read_object_boxed(data: &mut Vec<u8>, box_: bool) {
-  read_object(data);
+pub fn read_object_boxed(reader: &mut Reader, box_: bool) {
+  read_object(reader);
 }
 
 // TODO
-pub fn read_object(buf: &mut Vec<u8>) -> Object {
-  let object_type = read_byte(buf);
+pub fn read_object(reader: &mut Reader) -> Object {
+  let object_type = reader.byte();
 
   match object_type {
     0 => Object::Null,
-    1 => Object::Int(read_int(buf)),
-    2 => Object::Long(read_long(buf)),
-    3 => Object::Float(read_float(buf)),
-    4 => Object::String(read_prefixed_string(buf).unwrap()),
+    1 => Object::Int(reader.int()),
+    2 => Object::Long(reader.long()),
+    3 => Object::Float(reader.float()),
+    4 => Object::String(read_prefixed_string(reader).unwrap()),
     5 => {
-      read_byte(buf);
-      read_short(buf);
+      reader.byte();
+      reader.short();
       Object::NotImplemented
     }
     6 => {
-      let length = read_short(buf);
+      let length = reader.short();
       let mut values = vec![];
       for _ in 0..length {
-        values.push(read_int(buf));
+        values.push(reader.int());
       }
       Object::NotImplemented
     }
     7 => {
-      read_int(buf);
-      read_int(buf);
+      reader.int();
+      reader.int();
       Object::NotImplemented
     }
     8 => {
-      let length = read_short(buf);
+      let length = reader.short();
       let mut values = vec![];
       for _ in 0..length {
-        values.push(read_int(buf));
+        values.push(reader.int());
       }
       Object::NotImplemented
     }
     9 => {
-      read_byte(buf);
-      read_short(buf);
+      reader.byte();
+      reader.short();
       Object::NotImplemented
     }
     10 => {
-      read_byte(buf);
+      reader.byte();
       Object::NotImplemented
     }
     11 => {
-      read_double(buf);
+      reader.double();
       Object::NotImplemented
     }
     12 => {
-      read_int(buf);
+      reader.int();
       Object::NotImplemented
     }
     13 => {
-      read_short(buf);
+      reader.short();
       Object::NotImplemented
     }
     14 => {
-      let length = read_short(buf);
+      let length = reader.short();
       let mut values = vec![];
       for _ in 0..length {
-        values.push(read_byte(buf));
+        values.push(reader.byte());
       }
       Object::NotImplemented
     }
     15 => {
-      read_byte(buf);
+      reader.byte();
       Object::NotImplemented
     }
     16 => {
-      let length = read_short(buf);
+      let length = reader.short();
       let mut values = vec![];
       for _ in 0..length {
-        values.push(read_byte(buf));
+        values.push(reader.byte());
       }
       Object::NotImplemented
     }
     17 => {
-      read_int(buf);
+      reader.int();
       Object::NotImplemented
     }
     18 => {
-      let length = read_short(buf);
+      let length = reader.short();
       for _ in 0..length {
-        read_float(buf);
-        read_float(buf);
+        reader.float();
+        reader.float();
       }
       Object::NotImplemented
     }
     19 => {
-      read_float(buf);
-      read_float(buf);
+      reader.float();
+      reader.float();
       Object::NotImplemented
     }
     20 => {
-      read_byte(buf);
+      reader.byte();
       Object::NotImplemented
     }
     21 => {
-      let length = read_short(buf);
+      let length = reader.short();
       let mut values = vec![];
       for _ in 0..length {
-        values.push(read_int(buf));
+        values.push(reader.int());
       }
       Object::NotImplemented
     }
     22 =>  {
-      let length = read_short(buf);
+      let length = reader.short();
       let mut values = vec![];
       for _ in 0..length {
-        values.push(read_object(buf));
+        values.push(read_object(reader));
       }
       Object::NotImplemented
     }
     23 => {
-      read_byte(buf);
+      reader.byte();
       Object::NotImplemented
     }
     _ => Object::Unknown,
@@ -277,14 +307,14 @@ pub fn write_object(buf: &mut Vec<u8>, object: Object) {
   }
 }
 
-pub fn read_string_map(mut buf: &mut Vec<u8>) -> HashMap<String, Option<String>> {
+pub fn read_string_map(reader: &mut Reader) -> HashMap<String, Option<String>> {
   let mut data = HashMap::new();
   
-  let size = read_short(&mut buf);
+  let size = reader.short();
   println!("size: {}", size);
   for _ in 0..size {
-    let key = read_string(&mut buf).unwrap();
-    let value = read_string(&mut buf);
+    let key = read_string(reader).unwrap();
+    let value = read_string(reader);
     println!("key: {}", key);
     println!("value: {:?}", value);
     data.insert(key, value);
@@ -314,8 +344,8 @@ pub enum KickReason {
   ServerRestarting = 15
 }
 
-pub fn read_kick(buf: &mut Vec<u8>) -> Option<KickReason> {
-  KickReason::try_from(buf[0]).ok()
+pub fn read_kick(reader: &mut Reader) -> Option<KickReason> {
+  KickReason::try_from(reader.byte()).ok()
 }
 
 pub fn write_kick(buf: &mut Vec<u8>, reason: KickReason) {
@@ -328,9 +358,9 @@ pub struct Tile {
   pub y: u16
 }
 
-pub fn read_tile(buf: &mut Vec<u8>) -> Tile {
-  let x = read_short(buf);
-  let y = read_short(buf);
+pub fn read_tile(reader: &mut Reader) -> Tile {
+  let x = reader.short();
+  let y = reader.short();
   Tile { x, y }
 }
 
@@ -345,9 +375,9 @@ pub struct Unit {
   pub id: u32,
 }
 
-pub fn read_unit(buf: &mut Vec<u8>) -> Unit {
-  let unit_type = read_byte(buf);
-  let id = read_int(buf);
+pub fn read_unit(reader: &mut Reader) -> Unit {
+  let unit_type = reader.byte();
+  let id = reader.int();
   Unit {
     unit_type,
     id,
@@ -365,9 +395,9 @@ pub struct Items {
   count: u32
 }
 
-pub fn read_items(buf: &mut Vec<u8>) -> Items {
-  let id = read_short(buf);
-  let count =  read_int(buf);
+pub fn read_items(reader: &mut Reader) -> Items {
+  let id = reader.short();
+  let count =  reader.int();
   Items { id, count }
 }
 
@@ -377,9 +407,9 @@ pub struct Vec2 {
   y: f32
 }
 
-pub fn read_vec2(buf: &mut Vec<u8>) -> Vec2 {
-  let x = read_float(buf);
-  let y = read_float(buf);
+pub fn read_vec2(reader: &mut Reader) -> Vec2 {
+  let x = reader.float();
+  let y = reader.float();
   Vec2 { x, y }
 }
 
@@ -389,16 +419,16 @@ pub struct Vec2Nullable {
   y: f32
 }
 
-pub fn read_vec2_nullable(buf: &mut Vec<u8>) -> Vec2 {
+pub fn read_vec2_nullable(reader: &mut Reader) -> Vec2 {
   // TODO  (isNaN(x) || isNaN(y)) ? null : {x, y}
   // How does NaN even work
-  let x = read_float(buf);
-  let y = read_float(buf);
+  let x = reader.float();
+  let y = reader.float();
   Vec2 { x, y }
 }
 
-pub fn read_command(data: &mut Vec<u8>) -> Option<u8> {
-  let value = read_byte(data);
+pub fn read_command(reader: &mut Reader) -> Option<u8> {
+  let value = reader.byte();
   if value == 255 {
     None
   } else {
