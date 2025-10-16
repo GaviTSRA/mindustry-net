@@ -11,7 +11,7 @@ use flate2::read::ZlibDecoder;
 use lz4::block::{compress, decompress};
 use tokio::net::tcp::OwnedReadHalf;
 use crate::save_io::{read_content_header, read_map};
-use crate::type_io::{read_kick, read_prefixed_string, read_string_map, write_float, write_int, write_short, write_string, KickReason, read_string, Unit, write_byte, write_unit, Reader};
+use crate::type_io::{read_kick, read_prefixed_string, read_string_map, write_float, write_int, write_string, KickReason, read_string, Unit, write_byte, write_unit, Reader, write_unsigned_short};
 use crate::unit_io::{read_full_unit, write_plans, FullUnit, Plan};
 
 #[derive(Debug)]
@@ -76,7 +76,7 @@ pub enum Packet {
   // [45] Kick with a preset message
   KickCall2 { reason: KickReason },
   // [59] Spawn call
-  SpawnCall { tile_x: u16, tile_y: u16, entity: u32 },
+  SpawnCall { tile_x: i16, tile_y: i16, entity: u32 },
   // [71] Send a chat message to server
   SendChatMessageCall { message: String },
   // [73] Received a chat message from server
@@ -252,7 +252,7 @@ pub fn parse_regular_packet(id: u8, mut reader: Reader, content_map: &Option<Has
 
       let amount = reader.short();
       let byte_count = reader.short();
-      let mut data = reader.bytes(byte_count as usize);
+      let data = reader.bytes(byte_count as usize);
       
       let mut unit_reader = Reader::new(data);
 
@@ -347,7 +347,7 @@ pub fn write_packet(packet: Packet) -> Vec<u8> {
     }
     Packet::BeginPlaceCall { unit, result, team, x, y, rotation } => {
       write_unit(&mut data, unit);
-      write_short(&mut data, result);
+      write_unsigned_short(&mut data, result);
       write_byte(&mut data, team);
       write_int(&mut data, x);
       write_int(&mut data, y);
@@ -372,8 +372,8 @@ pub fn write_packet(packet: Packet) -> Vec<u8> {
       write_float(&mut data, base_rotation);
       write_float(&mut data, x_velocity);
       write_float(&mut data, y_velocity);
-      write_short(&mut data, mining_x);
-      write_short(&mut data, mining_y);
+      write_unsigned_short(&mut data, mining_x);
+      write_unsigned_short(&mut data, mining_y);
       write_byte(&mut data, boosting as u8);
       write_byte(&mut data, shooting as u8);
       write_byte(&mut data, chatting as u8);
@@ -403,15 +403,15 @@ pub fn write_packet(packet: Packet) -> Vec<u8> {
     data = compress(&data, None, false).unwrap();
     let length = data.len() as u16 + 4;
 
-    write_short(&mut buf, length);
+    write_unsigned_short(&mut buf, length);
     buf.push(id);
 
-    write_short(&mut buf, uncompressed_length);
+    write_unsigned_short(&mut buf, uncompressed_length);
     buf.push(0x01);
   } else {
-    write_short(&mut buf, length);
+    write_unsigned_short(&mut buf, length);
     buf.push(id);
-    write_short(&mut buf, data.len() as u16);
+    write_unsigned_short(&mut buf, data.len() as u16);
     buf.push(0x00);
   }
 

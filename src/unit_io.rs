@@ -58,7 +58,7 @@ pub fn read_abilities(reader: &mut Reader) -> Vec<f32> {
 pub struct Plan {
   pub plan_type: u8, // TODO this might be a boolean for deconstruction
   pub position: Tile,
-  pub block: Option<u16>,
+  pub block: Option<i16>,
   pub rotation: Option<u8>,
   pub has_config: Option<bool>,
   pub config: Option<Object>
@@ -95,13 +95,21 @@ pub fn read_plan(reader: &mut Reader) -> Plan {
 
 pub fn read_plans(reader: &mut Reader) -> Vec<Plan> {
   let mut plans = vec![];
-  let plan_count = reader.int();
+  let plan_count = reader.short();
   for _ in 0..plan_count {
     plans.push(read_plan(reader));
   }
   plans
 }
 
+pub fn read_plans_queue(reader: &mut Reader) -> Vec<Plan> {
+  let mut plans = vec![];
+  let plan_count = reader.int();
+  for _ in 0..plan_count {
+    plans.push(read_plan(reader));
+  }
+  plans
+}
 
 pub fn write_plan(buf: &mut Vec<u8>, plan: Plan) {
   write_byte(buf, plan.plan_type);
@@ -124,7 +132,7 @@ pub fn write_plans(buf: &mut Vec<u8>, plans: Vec<Plan>) {
 
 #[derive(Debug)]
 pub struct Status {
-  id: u16,
+  id: i16,
   time: f32,
 }
 
@@ -301,7 +309,7 @@ pub fn read_payloads(reader: &mut Reader, content_map: &HashMap<String, Vec<Stri
 #[derive(Debug)]
 pub enum FullUnit {
   GenericUnit {
-    revision: Option<u16>,
+    revision: Option<i16>,
     abilities: Vec<f32>,
     ammo: f32,
     building: Option<u32>,
@@ -323,14 +331,14 @@ pub enum FullUnit {
     statuses: Vec<Status>,
     team: u8,
     time: Option<f32>,
-    unit_type: u16, // TODO check what 'utype' really is
+    unit_type: i16, // TODO check what 'utype' really is
     upgrade_building: u8, // TODO check what 'upgbuilding' really is
     velocity: Vec2,
     x: f32,
     y: f32
   },
   Fire {
-    revision: Option<u16>,
+    revision: Option<i16>,
     lifetime: f32,
     tile: Tile,
     time: f32,
@@ -338,15 +346,15 @@ pub enum FullUnit {
     y: f32,
   },
   Puddle {
-    revision: Option<u16>,
+    revision: Option<i16>,
     amount: f32,
-    liquid: u16,
+    liquid: i16,
     tile: Tile,
     x: f32,
     y: f32,
   },
   Player {
-    revision: Option<u16>,
+    revision: Option<i16>,
     admin: bool,
     boosting: bool,
     color: u32,
@@ -361,17 +369,17 @@ pub enum FullUnit {
     y: f32,
   },
   WeatherState {
-    revision: Option<u16>,
+    revision: Option<i16>,
     effect: f32,
     intensity: f32,
     life: f32,
     opacity: f32,
-    weather: u16,
+    weather: i16,
     wind_x: f32,
     wind_y: f32,
   },
   WorldLabel {
-    revision: Option<u16>,
+    revision: Option<i16>,
     flags: u8,
     fonts: f32,
     str: String,
@@ -425,7 +433,7 @@ pub fn read_full_unit(reader: &mut Reader, type_id: u8, has_revision: bool, cont
       payloads = Some(read_payloads(reader, &content_map.clone().expect("Received unit data before content map was set and no default map is present")));
     }
 
-    let plans = read_plans(reader);
+    let plans = read_plans_queue(reader);
     let rotation = reader.float();
     let shield = reader.float();
     let spawned_by_core = reader.byte() != 0; // TODO check if 'spbycore' really is spawned_by_core

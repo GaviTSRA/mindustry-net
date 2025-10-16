@@ -27,10 +27,14 @@ fn load_block_params() -> HashMap<String, BlockParam> {
   serde_json::from_str(data).unwrap()
 }
 
-fn read_main(reader: &mut Reader, block_type: String, version: u8, content_map: &HashMap<String, Vec<String>>) {
-  if block_type == "GenericCrafter" || block_type == "Separator" || block_type == "HeatProducer" || block_type == "HeatCrafter" {
+fn read_main(reader: &mut Reader, block_name: String, block_type: String, version: u8, content_map: &HashMap<String, Vec<String>>) {
+  if block_type == "GenericCrafter" || block_type == "Separator" || block_type == "HeatProducer" || block_type == "HeatCrafter" || block_type == "AttributeCrafter" {
     let progress = reader.float();
     let warmup = reader.float();
+    
+    if block_name == "cultivator" {
+      reader.float();
+    }
     
     let heat;
     if block_type == "HeatProducer" {
@@ -650,7 +654,6 @@ fn read_main(reader: &mut Reader, block_type: String, version: u8, content_map: 
   } else if block_type == "LogicDisplay" {
     if version >= 1 {
       let has_transform = reader.bool();
-      println!("{has_transform} {version}");
       //let map = [];
       if has_transform {
         for i in 0..9 {
@@ -781,8 +784,8 @@ struct BlockBaseData {
   on: Option<u8>,
   team: u8,
   module_bitmask: u8,
-  items: Option<HashMap<u16, u32>>,
-  liquids: Option<HashMap<u16, u32>>,
+  items: Option<HashMap<i16, u32>>,
+  liquids: Option<HashMap<i16, u32>>,
   power: Option<BlockPowerData>,
 }
 fn read_base_block_data(reader: &mut Reader, id: String) -> BlockBaseData {
@@ -865,9 +868,9 @@ fn get_module_bitmask(id: String, block_parms: HashMap<String, BlockParam>) -> u
   a | b | c | 8
 }
 
-fn read_block_items(reader: &mut Reader, legacy: bool) -> HashMap<u16, u32> {
+fn read_block_items(reader: &mut Reader, legacy: bool) -> HashMap<i16, u32> {
   let count = if legacy {
-    reader.byte() as u16
+    reader.byte() as i16
   } else {
     reader.short()
   };
@@ -875,7 +878,7 @@ fn read_block_items(reader: &mut Reader, legacy: bool) -> HashMap<u16, u32> {
   let mut items = HashMap::new();
   for _ in 0..count {
     let item_id = if legacy {
-      reader.byte() as u16
+      reader.byte() as i16
     } else {
       reader.short()
     };
@@ -885,9 +888,9 @@ fn read_block_items(reader: &mut Reader, legacy: bool) -> HashMap<u16, u32> {
   items
 }
 
-fn read_block_liquids(reader: &mut Reader, legacy: bool) -> HashMap<u16, u32> {
+fn read_block_liquids(reader: &mut Reader, legacy: bool) -> HashMap<i16, u32> {
   let count = if legacy {
-    reader.byte() as u16
+    reader.byte() as i16
   } else {
     reader.short()
   };
@@ -895,7 +898,7 @@ fn read_block_liquids(reader: &mut Reader, legacy: bool) -> HashMap<u16, u32> {
   let mut liquids = HashMap::new();
   for _ in 0..count {
     let liquid_id = if legacy {
-      reader.byte() as u16
+      reader.byte() as i16
     } else {
       reader.short()
     };
@@ -925,8 +928,8 @@ fn read_block_power(reader: &mut Reader) -> BlockPowerData {
 }
 
 pub fn readAll(reader: &mut Reader, id: String, block_type: String, version: u8, content_map:  &HashMap<String, Vec<String>>) {
-  let base = read_base_block_data(reader, id);
+  let base = read_base_block_data(reader, id.clone());
 
-  let main = read_main(reader, block_type, version, content_map);
+  let main = read_main(reader, id, block_type, version, content_map);
   //return [base, main]
 }

@@ -27,9 +27,14 @@ impl Reader {
     bytes
   }
 
-  pub fn short(&mut self) -> u16 {
+  pub fn unsigned_short(&mut self) -> u16 {
     let bytes = self.bytes(2);
     u16::from_be_bytes([bytes[0], bytes[1]])
+  }
+
+  pub fn short(&mut self) -> i16 {
+    let bytes = self.bytes(2);
+    i16::from_be_bytes([bytes[0], bytes[1]])
   }
 
   pub fn int(&mut self) -> u32 {
@@ -77,7 +82,11 @@ pub fn write_bool(buf: &mut Vec<u8>, value: bool) {
   buf.push(if value { 1 } else { 0 });
 }
 
-pub fn write_short(buf: &mut Vec<u8>, short: u16) {
+pub fn write_short(buf: &mut Vec<u8>, short: i16) {
+  buf.extend_from_slice(&short.to_be_bytes());
+}
+
+pub fn write_unsigned_short(buf: &mut Vec<u8>, short: u16) {
   buf.extend_from_slice(&short.to_be_bytes());
 }
 
@@ -106,7 +115,7 @@ pub fn read_prefixed_string(reader: &mut Reader) -> Option<String> {
   if reader.remaining() < 2 {
     return None;
   }
-  let length = reader.short() as usize;
+  let length = reader.unsigned_short() as usize;
 
   if reader.remaining() < length {
     return None;
@@ -116,7 +125,7 @@ pub fn read_prefixed_string(reader: &mut Reader) -> Option<String> {
 }
 
 pub fn read_string(reader: &mut Reader) -> Option<String> {
-  let length = reader.short();
+  let length = reader.unsigned_short();
   if length == 0 {
     return None;
   }
@@ -354,8 +363,8 @@ pub fn write_kick(buf: &mut Vec<u8>, reason: KickReason) {
 
 #[derive(Debug, Clone)]
 pub struct Tile {
-  pub x: u16,
-  pub y: u16
+  pub x: i16,
+  pub y: i16
 }
 
 pub fn read_tile(reader: &mut Reader) -> Tile {
@@ -391,7 +400,7 @@ pub fn write_unit(buf: &mut Vec<u8>, unit: Unit) {
 
 #[derive(Debug)]
 pub struct Items {
-  id: u16,
+  id: i16,
   count: u32
 }
 

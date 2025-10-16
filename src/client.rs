@@ -264,6 +264,7 @@ impl Client {
       Packet::WorldStream { id, wave, wave_time, tick, seed0 , seed1, content_map: content } => {
         let mut current_state = self.state.lock().await;
         current_state.player_id = id;
+        println!("Set player id {id}");
 
         {
           let mut content_map = self.content_map.write().await;
@@ -298,7 +299,9 @@ impl Client {
         None
       },
       Packet::SpawnCall { tile_x, tile_y, entity } => {
+        println!("Spawn call: {tile_x}/{tile_y} {entity}");
         let mut current_state = self.state.lock().await;
+        println!("{}", current_state.player_id);
         if current_state.player_id == entity {
           current_state.x = (tile_x * 8) as f32;
           current_state.y = (tile_y * 8) as f32;

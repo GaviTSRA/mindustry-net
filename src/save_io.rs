@@ -10,7 +10,7 @@ pub fn load_block_types() -> HashMap<String, String> {
   serde_json::from_str(data).unwrap()
 }
 
-fn color_from_number(num: u16) -> Color {
+fn color_from_number(num: i16) -> Color {
   let mut hasher = DefaultHasher::new();
   num.hash(&mut hasher);
   let hash = hasher.finish();
@@ -57,9 +57,9 @@ pub fn read_content_header(reader: &mut Reader) -> HashMap<String, Vec<String>> 
 
 #[derive(Clone)]
 struct MapTile {
-  floor: u16,
-  ore: Option<u16>,
-  block: Option<u16>,
+  floor: i16,
+  ore: Option<i16>,
+  block: Option<i16>,
 }
 
 struct Map {
@@ -90,19 +90,19 @@ impl Map {
     self.tiles.get(y as usize)?.get(x as usize)
   }
 
-  pub fn set_floor(&mut self, x: u32, y: u32, floor: u16) {
+  pub fn set_floor(&mut self, x: u32, y: u32, floor: i16) {
     if let Some(tile) = self.tiles.get_mut(y as usize).and_then(|r| r.get_mut(x as usize)) {
       tile.floor = floor;
     }
   }
 
-  pub fn set_ore(&mut self, x: u32, y: u32, ore: u16) {
+  pub fn set_ore(&mut self, x: u32, y: u32, ore: i16) {
     if let Some(tile) = self.tiles.get_mut(y as usize).and_then(|r| r.get_mut(x as usize)) {
       tile.ore = Some(ore);
     }
   }
 
-  pub fn set_block(&mut self, x: u32, y: u32, block: u16) {
+  pub fn set_block(&mut self, x: u32, y: u32, block: i16) {
     if let Some(tile) = self.tiles.get_mut(y as usize).and_then(|r| r.get_mut(x as usize)) {
       tile.block = Some(block);
     }
@@ -220,7 +220,7 @@ pub fn read_map(mut reader: &mut Reader, content_map: &HashMap<String, Vec<Strin
     if had_entity {
       if is_center {
         //only read entity for center blocks
-        let length = reader.short();
+        let length = reader.unsigned_short();
 
         let data_length_before = reader.remaining();
 
