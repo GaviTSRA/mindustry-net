@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::{net::{TcpStream, UdpSocket}, sync::mpsc, time, io::AsyncWriteExt};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use crate::packet::{read_packet_tcp, FrameworkPacket, AnyPacket, write_framework_packet, write_packet, Packet, read_packet_udp};
 use crate::stream_builder::StreamBuilder;
 use crate::type_io::Unit;
@@ -26,14 +28,16 @@ pub struct State {
 
 pub struct Client {
   pub state: Arc<Mutex<State>>,
+  username: String,
   rx_in: mpsc::Receiver<AnyPacket>,
   tx_in: mpsc::Sender<AnyPacket>,
   tx_out: mpsc::Sender<QueuedPacket>,
   streams: HashMap<u32, StreamBuilder>,
+  content_map: Arc<RwLock<Option<HashMap<String, Vec<String>>>>>
 }
 
 impl Client {
-  pub async fn new(ip: String) -> Client {
+  pub async fn new(ip: String, username: String) -> Client {
     let (tx_in, rx_in) = mpsc::channel::<AnyPacket>(100);
     let (tx_out, mut rx_out) = mpsc::channel::<QueuedPacket>(100);
 
@@ -43,21 +47,35 @@ impl Client {
     let udp = Arc::from(UdpSocket::bind("0.0.0.0:0").await.unwrap());
     let mut udp_read = udp.clone();
     udp.connect(ip).await.unwrap();
+    
+    let default_content_map_path = PathBuf::from("content-map.json");
+    let default_content_map = if default_content_map_path.exists() {
+      let default_content_map_data = fs::read_to_string(default_content_map_path).unwrap();
+      Some(serde_json::from_str(&default_content_map_data).unwrap())
+    } else {
+      None
+    };
+    
+    let content_map = Arc::new(RwLock::new(default_content_map));
 
     // TCP Read
     let tx_in_tcp = tx_in.clone();
+    let content = Arc::clone(&content_map);
     tokio::spawn(async move {
       loop {
-        let packet = read_packet_tcp(&mut tcp_read).await.unwrap();
+        let content_map = content.read().await;
+        let packet = read_packet_tcp(&mut tcp_read, &content_map).await.unwrap();
         tx_in_tcp.send(packet).await.unwrap();
       }
     });
 
     // UDP Read
     let tx_in_udp = tx_in.clone();
+    let content = Arc::clone(&content_map);
     tokio::spawn(async move {
       loop {
-        let packet = match read_packet_udp(&mut udp_read).await {
+        let map = content.read().await;
+        let packet = match read_packet_udp(&mut udp_read, &map).await {
           Ok(packet) => packet,
           Err(err) => {
             println!("[UDP Error] {err:?}");
@@ -93,10 +111,12 @@ impl Client {
 
         units: HashMap::new(),
       })),
+      username,
       rx_in,
       tx_in,
       tx_out,
       streams: HashMap::new(),
+      content_map: content_map.clone(),
     }
   }
 
@@ -138,7 +158,7 @@ impl Client {
         let connect_packet = write_packet(Packet::Connect {
           version: 146,
           client: "official".to_string(),
-          name: "Jervis UwU".to_string(),
+          name: self.username.clone(),
           lang: "en".to_string(),
           usid: "USIGAAAAAAA=".to_string(),
           uuid: "UUIGAAAAAAA=".to_string(),
@@ -235,15 +255,23 @@ impl Client {
         stream.add(data);
         if stream.is_done() {
           let stream = self.streams.remove(&id).unwrap();
-          let packet = stream.build().unwrap();
+          let content = self.content_map.read().await;
+          let packet = stream.build(&content).unwrap();
           self.queue_in_packet(AnyPacket::Regular(packet)).await;
         }
         None
       }
-      Packet::WorldStream { id, .. } => {
+      Packet::WorldStream { id, wave, wave_time, tick, seed0 , seed1, content_map: content } => {
         let mut current_state = self.state.lock().await;
         current_state.player_id = id;
-        None
+
+        {
+          let mut content_map = self.content_map.write().await;
+          *content_map = Some(content.clone());
+        }
+        
+        Some(Packet::WorldStream { id, wave, wave_time, tick, seed0, seed1, content_map: content })
+        //None
       }
       Packet::EntitySnapshot { units } => {
         let mut current_state = self.state.lock().await;

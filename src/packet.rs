@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::fs;
 use std::io::Read;
+use std::path::PathBuf;
 use tokio::io::AsyncReadExt;
 use base64::engine::general_purpose;
 use std::sync::Arc;
@@ -8,6 +10,7 @@ use base64::Engine;
 use flate2::read::ZlibDecoder;
 use lz4::block::{compress, decompress};
 use tokio::net::tcp::OwnedReadHalf;
+use crate::save_io::{read_content_header, read_map};
 use crate::type_io::{read_double, read_float, read_int, read_kick, read_long, read_short, read_prefixed_string, read_string_map, write_float, write_int, write_short, write_string, KickReason, read_string, read_byte, read_bytes, Unit, write_byte, write_unit};
 use crate::unit_io::{read_full_unit, write_plans, FullUnit, Plan};
 
@@ -41,7 +44,7 @@ pub enum Packet {
   StreamChunk { id: u32, data: Vec<u8> },
   // [02] Completed world stream
   WorldStream { // TODO
-    /* rules */ /* map */ wave: u32, wave_time: f32, tick: f64, seed0: u64, seed1: u64, id: u32 /* more */
+    /* rules */ /* map */ wave: u32, wave_time: f32, tick: f64, seed0: u64, seed1: u64, id: u32, content_map: HashMap<String, Vec<String>> /* more */
   },
   // [03] Connect to server
   Connect {
@@ -84,7 +87,8 @@ pub enum Packet {
 }
 
 pub async fn read_packet_tcp(
-  stream: &mut OwnedReadHalf
+  stream: &mut OwnedReadHalf,
+  content_map: &Option<HashMap<String, Vec<String>>>,
 ) -> Result<AnyPacket, PacketError> {
   let mut buf = [0u8; 2];
   let length = match stream.read_exact(&mut buf).await {
@@ -106,19 +110,21 @@ pub async fn read_packet_tcp(
     }
   }
 
-  parse_packet(buf)
+  parse_packet(buf, content_map)
 }
 
 pub async fn read_packet_udp(
-  socket: &mut Arc<UdpSocket>
+  socket: &mut Arc<UdpSocket>,
+  content_map: &Option<HashMap<String, Vec<String>>>,
 ) -> Result<AnyPacket, PacketError> {
   let mut buf = [0u8; 32768];
   let length = socket.recv(&mut buf).await.unwrap();
   let data = &buf[..length];
-  parse_packet(Vec::from(data))
+
+  parse_packet(Vec::from(data), content_map)
 }
 
-pub fn parse_packet(mut buf: Vec<u8>) -> Result<AnyPacket, PacketError> {
+pub fn parse_packet(mut buf: Vec<u8>, content_map: &Option<HashMap<String, Vec<String>>>) -> Result<AnyPacket, PacketError> {
   let id = read_byte(&mut buf);
 
   if id == 254 {
@@ -137,7 +143,7 @@ pub fn parse_packet(mut buf: Vec<u8>) -> Result<AnyPacket, PacketError> {
         }
       };
     }
-    Ok(AnyPacket::Regular(parse_regular_packet(id, buf)?))
+    Ok(AnyPacket::Regular(parse_regular_packet(id, buf, content_map)?))
   }
 }
 
@@ -164,7 +170,7 @@ fn parse_framework_packet(mut buf: Vec<u8>) -> Result<FrameworkPacket, PacketErr
   })
 }
 
-pub fn parse_regular_packet(id: u8, mut buf: Vec<u8>) -> Result<Packet, PacketError> {
+pub fn parse_regular_packet(id: u8, mut buf: Vec<u8>, content_map: &Option<HashMap<String, Vec<String>>>) -> Result<Packet, PacketError> {
   //println!("{id}");
   
   match id {
@@ -199,8 +205,7 @@ pub fn parse_regular_packet(id: u8, mut buf: Vec<u8>) -> Result<Packet, PacketEr
       let seed0 = read_long(&mut data);
       let seed1 = read_long(&mut data);
       let id = read_int(&mut data);
-      
-      // TODO
+
       read_short(&mut data);
       read_byte(&mut data);
       read_byte(&mut data);
@@ -217,6 +222,14 @@ pub fn parse_regular_packet(id: u8, mut buf: Vec<u8>) -> Result<Packet, PacketEr
       read_float(&mut data);
       read_float(&mut data);
 
+      let content_map = read_content_header(&mut data);
+
+      let default_content_map_path = PathBuf::from("content-map.json");
+      let default_content_map_data = serde_json::to_string(&content_map).unwrap();
+      fs::write(&default_content_map_path, default_content_map_data).unwrap();
+      
+      read_map(&mut data, &content_map);
+
       println!("Remaining data: {}", data.len()); // TODO
       
       Ok(Packet::WorldStream {
@@ -226,6 +239,7 @@ pub fn parse_regular_packet(id: u8, mut buf: Vec<u8>) -> Result<Packet, PacketEr
         seed0,
         seed1,
         id,
+        content_map
       })
     }
     34 => {
@@ -237,7 +251,7 @@ pub fn parse_regular_packet(id: u8, mut buf: Vec<u8>) -> Result<Packet, PacketEr
       for _ in 0..amount {
         let id = read_int(&mut data);
         let unit_type = read_byte(&mut data);
-        let unit = read_full_unit(&mut data, unit_type, false);
+        let unit = read_full_unit(&mut data, unit_type, false, content_map);
         units.insert(id, unit);
       }
 

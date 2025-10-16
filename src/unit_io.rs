@@ -1,5 +1,8 @@
+use std::collections::HashMap;
 use phf::phf_map;
-use crate::type_io::{read_byte, read_double, read_float, read_int, read_items, read_object, read_prefixed_string, read_short, read_tile, read_unit, read_vec2, write_byte, write_int, write_object, write_short, write_tile, Items, Object, Tile, Unit, Vec2};
+use crate::block_io::readAll;
+use crate::save_io::load_block_types;
+use crate::type_io::{read_bool, read_byte, read_double, read_float, read_int, read_items, read_object, read_prefixed_string, read_short, read_tile, read_unit, read_vec2, write_byte, write_int, write_object, write_short, write_tile, Items, Object, Tile, Unit, Vec2};
 
 static UNIT_MAP: phf::Map<u8, &'static str> = phf_map! {
     0u8 => "UnitEntity",
@@ -257,16 +260,36 @@ pub fn read_controller(buf: &mut Vec<u8>) -> Controller {
 pub struct Payload {}
 
 // TODO
-pub fn read_payload(buf: &mut Vec<u8>) -> Payload {
-  Payload {}
+pub fn read_payload(data: &mut Vec<u8>, content_map: &HashMap<String, Vec<String>>) -> Option<Payload> {
+  let ex = read_bool(data);
+  if !ex {
+    return None
+  }
+  
+  let payload_type = read_byte(data);
+  if payload_type == 1 {
+    let block_types = load_block_types();
+    
+    let id = read_short(data);
+    let version = read_byte(data);
+    let block_name = content_map.get("block").unwrap().get(id as usize).unwrap();
+    let block_type = block_types.get(block_name).unwrap();
+    let block = readAll(data, block_name.clone(), block_type.clone(), version, content_map);
+    //return [id, block]
+  } else {
+    let unit = read_unit(data);
+    //return unit
+  }
+  
+  Some(Payload {})
 }
 
-pub fn read_payloads(buf: &mut Vec<u8>) -> Vec<Payload> {
+pub fn read_payloads(buf: &mut Vec<u8>, content_map: &HashMap<String, Vec<String>>) -> Vec<Payload> {
   let mut payloads = vec![];
 
   let amount = read_int(buf);
   for _ in 0..amount {
-    let payload = read_payload(buf);
+    let payload = read_payload(buf, content_map).unwrap();
     payloads.push(payload)
   }
 
@@ -358,7 +381,7 @@ pub enum FullUnit {
   Unknown
 }
 
-pub fn read_full_unit(buf: &mut Vec<u8>, type_id: u8, has_revision: bool) -> FullUnit {
+pub fn read_full_unit(buf: &mut Vec<u8>, type_id: u8, has_revision: bool, content_map: &Option<HashMap<String, Vec<String>>>) -> FullUnit {
   let mut revision = None;
   if has_revision {
     revision = Some(read_short(buf));
@@ -399,7 +422,7 @@ pub fn read_full_unit(buf: &mut Vec<u8>, type_id: u8, has_revision: bool) -> Ful
 
     let mut payloads = None;
     if unit_type == &"PayloadUnit" || unit_type == &"BuildingTetherPayloadUnit" {
-      payloads = Some(read_payloads(buf));
+      payloads = Some(read_payloads(buf, &content_map.clone().expect("Received unit data before content map was set and no default map is present")));
     }
 
     let plans = read_plans(buf);

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::packet::{parse_regular_packet, Packet, PacketError};
 
 pub struct StreamBuilder {
@@ -20,7 +21,7 @@ impl StreamBuilder {
     self.data.len() >= self.total as usize
   }
 
-  pub fn build(self) -> Result<Packet, PacketError> {
-    parse_regular_packet(self.stream_type, self.data)
+  pub fn build(self, content_map: &Option<HashMap<String, Vec<String>>>) -> Result<Packet, PacketError> {
+    parse_regular_packet(self.stream_type, self.data, content_map)
   }
 }

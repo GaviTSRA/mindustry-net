@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 pub fn read_byte(buf: &mut Vec<u8>) -> u8 {
@@ -6,6 +7,14 @@ pub fn read_byte(buf: &mut Vec<u8>) -> u8 {
 
 pub fn write_byte(buf: &mut Vec<u8>, value: u8) {
   buf.push(value);
+}
+
+pub fn read_bool(buf: &mut Vec<u8>) -> bool {
+  read_byte(buf) == 1
+}
+
+pub fn write_bool(buf: &mut Vec<u8>, value: bool) {
+  buf.push(if value { 1 } else { 0 });
 }
 
 pub fn read_bytes(buf: &mut Vec<u8>) -> Vec<u8> {
@@ -113,6 +122,10 @@ pub enum Object {
   Unknown,
 
   NotImplemented
+}
+
+pub fn read_object_boxed(data: &mut Vec<u8>, box_: bool) {
+  read_object(data);
 }
 
 // TODO
@@ -264,12 +277,20 @@ pub fn write_object(buf: &mut Vec<u8>, object: Object) {
   }
 }
 
-pub fn read_string_map(mut buf: &mut Vec<u8>) {
+pub fn read_string_map(mut buf: &mut Vec<u8>) -> HashMap<String, Option<String>> {
+  let mut data = HashMap::new();
+  
   let size = read_short(&mut buf);
+  println!("size: {}", size);
   for _ in 0..size {
-    let key = read_string(&mut buf);
+    let key = read_string(&mut buf).unwrap();
     let value = read_string(&mut buf);
+    println!("key: {}", key);
+    println!("value: {:?}", value);
+    data.insert(key, value);
   }
+  
+  data
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
@@ -360,4 +381,27 @@ pub fn read_vec2(buf: &mut Vec<u8>) -> Vec2 {
   let x = read_float(buf);
   let y = read_float(buf);
   Vec2 { x, y }
+}
+
+#[derive(Debug)]
+pub struct Vec2Nullable {
+  x: f32,
+  y: f32
+}
+
+pub fn read_vec2_nullable(buf: &mut Vec<u8>) -> Vec2 {
+  // TODO  (isNaN(x) || isNaN(y)) ? null : {x, y}
+  // How does NaN even work
+  let x = read_float(buf);
+  let y = read_float(buf);
+  Vec2 { x, y }
+}
+
+pub fn read_command(data: &mut Vec<u8>) -> Option<u8> {
+  let value = read_byte(data);
+  if value == 255 {
+    None
+  } else {
+    Some(value)
+  }
 }
