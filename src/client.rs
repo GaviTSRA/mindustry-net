@@ -104,8 +104,8 @@ impl Client {
       state: Arc::new(Mutex::new(State {
         player_id: 0,
         unit: Unit { unit_type: 0, id: 0 },
-        x: 0.0,
-        y: 0.0,
+        x: -1.0,
+        y: -1.0,
         chatting: false,
         plans: vec![],
 
@@ -264,7 +264,6 @@ impl Client {
       Packet::WorldStream { id, wave, wave_time, tick, seed0 , seed1, content_map: content } => {
         let mut current_state = self.state.lock().await;
         current_state.player_id = id;
-        println!("Set player id {id}");
 
         {
           let mut content_map = self.content_map.write().await;
@@ -276,10 +275,20 @@ impl Client {
       }
       Packet::EntitySnapshot { units } => {
         let mut current_state = self.state.lock().await;
+        let possible_unit = current_state.units.get(&current_state.player_id).cloned();
 
-        match current_state.units.get(&current_state.player_id) {
+        match possible_unit {
           Some(unit) => match unit {
-            FullUnit::Player { unit, .. } => {
+            FullUnit::Player { unit, x, y, .. } => {
+              if current_state.x == -1.0 {
+                current_state.x = x;
+                println!("Update x: {}", x);
+              }
+              if current_state.y == -1.0 {
+                current_state.y = y;
+                println!("Update y: {}", y);
+              }
+
               current_state.unit = unit.clone();
             },
             _ => unreachable!(),
@@ -303,6 +312,7 @@ impl Client {
         let mut current_state = self.state.lock().await;
         println!("{}", current_state.player_id);
         if current_state.player_id == entity {
+          println!("Set coords");
           current_state.x = (tile_x * 8) as f32;
           current_state.y = (tile_y * 8) as f32;
         }

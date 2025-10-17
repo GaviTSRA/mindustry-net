@@ -130,7 +130,7 @@ pub fn write_plans(buf: &mut Vec<u8>, plans: Vec<Plan>) {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Status {
   id: i16,
   time: f32,
@@ -152,7 +152,7 @@ pub fn read_statuses(reader: &mut Reader) -> Vec<Status> {
   statuses
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Mount {
   state: u8,
   x: f32,
@@ -173,7 +173,7 @@ pub fn read_mounts(reader: &mut Reader) -> Vec<Mount> {
 
 
 // TODO
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Controller {}
 
 // TODO
@@ -264,7 +264,7 @@ pub fn read_controller(reader: &mut Reader) -> Controller {
 }
 
 // TODO
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Payload {}
 
 // TODO
@@ -306,7 +306,7 @@ pub fn read_payloads(reader: &mut Reader, content_map: &HashMap<String, Vec<Stri
 
 
 // TODO
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FullUnit {
   GenericUnit {
     revision: Option<i16>,

@@ -271,5 +271,5 @@ pub fn read_map(mut reader: &mut Reader, content_map: &HashMap<String, Vec<Strin
     i += 1;
   }
 
-  map.visualize();
+  // map.visualize();
 }

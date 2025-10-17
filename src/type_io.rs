@@ -398,7 +398,7 @@ pub fn write_unit(buf: &mut Vec<u8>, unit: Unit) {
   write_byte(buf, unit.unit_type);
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Items {
   id: i16,
   count: u32
@@ -410,7 +410,7 @@ pub fn read_items(reader: &mut Reader) -> Items {
   Items { id, count }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Vec2 {
   x: f32,
   y: f32
@@ -422,7 +422,7 @@ pub fn read_vec2(reader: &mut Reader) -> Vec2 {
   Vec2 { x, y }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Vec2Nullable {
   x: f32,
   y: f32
