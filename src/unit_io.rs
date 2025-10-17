@@ -1,4 +1,4 @@
-use crate::block_io::readAll;
+use crate::block_io::read_block;
 use crate::save_io::load_block_types;
 use crate::type_io::{
     Items, Object, Reader, Tile, Unit, Vec2, read_items, read_object, read_prefixed_string,
@@ -286,7 +286,7 @@ pub fn read_payload(
         let version = reader.byte();
         let block_name = content_map.get("block").unwrap().get(id as usize).unwrap();
         let block_type = block_types.get(block_name).unwrap();
-        let block = readAll(
+        let block = read_block(
             reader,
             block_name.clone(),
             block_type.clone(),

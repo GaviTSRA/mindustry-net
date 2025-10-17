@@ -1,4 +1,4 @@
-use crate::block_io::readAll;
+use crate::block_io::read_block;
 use crate::type_io::{Reader, read_string};
 use colored::{Color, Colorize};
 use serde::Deserialize;
@@ -95,22 +95,20 @@ impl Map {
         self.tiles.get(y as usize)?.get(x as usize)
     }
 
-    pub fn set_floor(&mut self, x: u32, y: u32, floor: i16) {
-        if let Some(tile) = self
-            .tiles
+    fn get_mut(&mut self, x: u32, y: u32) -> Option<&mut MapTile> {
+        self.tiles
             .get_mut(y as usize)
             .and_then(|r| r.get_mut(x as usize))
-        {
+    }
+
+    pub fn set_floor(&mut self, x: u32, y: u32, floor: i16) {
+        if let Some(tile) = self.get_mut(x, y) {
             tile.floor = floor;
         }
     }
 
     pub fn set_ore(&mut self, x: u32, y: u32, ore: i16) {
-        if let Some(tile) = self
-            .tiles
-            .get_mut(y as usize)
-            .and_then(|r| r.get_mut(x as usize))
-        {
+        if let Some(tile) = self.get_mut(x, y) {
             tile.ore = Some(ore);
         }
     }
@@ -248,7 +246,7 @@ pub fn read_map(mut reader: &mut Reader, content_map: &HashMap<String, Vec<Strin
                     .get(block_id as usize)
                     .unwrap();
                 let block_type = block_types.get(block_name).unwrap();
-                let building = readAll(
+                let block = read_block(
                     &mut reader,
                     block_name.clone(),
                     block_type.clone(),

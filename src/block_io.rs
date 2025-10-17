@@ -1,7 +1,8 @@
 use crate::type_io::{
     Reader, read_command, read_object_boxed, read_prefixed_string, read_string, read_vec2_nullable,
 };
-use crate::unit_io::{read_payload, read_plans};
+use crate::unit_io::{Plan, read_payload, read_plans};
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -29,13 +30,148 @@ fn load_block_params() -> HashMap<String, BlockParam> {
     serde_json::from_str(data).unwrap()
 }
 
-fn read_main(
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+enum MassDriverState {
+    Idle = 0,
+    Accepting = 1,
+    Shooting = 2,
+}
+
+pub enum SpecificBlockData {
+    // TODO GenericCrafter
+    // TODO Separator
+    // TODO HeatProducer
+    // TODO HeatCrafter
+    // TODO AttributeCrafter
+    Door {
+        open: bool,
+    },
+    ShieldWall {
+        shield: f32,
+    },
+    MendProjector {
+        heat: f32,
+        phase_heat: f32,
+    },
+    OverdriveProjector {
+        heat: f32,
+        phase_heat: f32,
+    },
+    ForceProjector {
+        broken: bool,
+        buildup: f32,
+        radius_scale: f32,
+        warmup: f32,
+        phase_heat: f32,
+    },
+    Radar {
+        progress: f32,
+    },
+    BuildTurret {
+        rotation: f32,
+        plans: Vec<Plan>,
+    },
+    BaseShield {
+        smooth_radius: f32,
+        broken: bool,
+    },
+    // TODO Conveyor
+    // TODO StackConveyor
+    // TODO Junction
+    // TODO Bridges (split up?)
+    // TODO Sorter
+    // TODO OverflowGate
+    MassDriver {
+        link: u32,
+        rotation: f32,
+        state: MassDriverState,
+    },
+    // TODO Duct
+    // TODO DuctRouter
+    // TODO DirectionalUnloader
+    // TODO UnitCargoLoader
+    // TODO UnitCargoUnloadPoint
+    // TODO reactors (split up?)
+    HeaterGenerator {
+        heat: f32,
+    },
+    // TODO drills (split up?)
+    Unloader {
+        item_id: i16,
+    },
+    // TODO ItemTurret
+    // TODO TractorBeamTurret
+    // TODO PointDefenseTurret
+    // TODO ContinuousTurret
+    // TODO ContinuousLiquidTurret
+    RepairTurret {
+        rotation: f32,
+    },
+    // TODO UnitFactory
+    // TODO Reconstructor
+    // TODO UnitAssembler
+    // TODO PayloadConveyor
+    // TODO PayloadRouter
+    // TODO PayloadMassDriver
+    // TODO PayloadDeconstructor
+    // TODO Constructor
+    // TODO PayloadLoader
+    ItemSource {
+        item_id: i16,
+    },
+    LiquidSource {
+        liquid_id: i16,
+    },
+    // TODO PayloadSource
+    LightBlock {
+        color: u32,
+    },
+    // TODO LaunchPad
+    Accelerator {
+        progress: f32,
+    },
+    Message {
+        message: Option<String>,
+    },
+    Switch {
+        enabled: bool,
+    },
+    // TODO ConsumeGenerator
+    // TODO ThermalGenerator
+    // TODO SolarGenerator
+    // TODO StackRouter
+    LiquidTurret {
+        reload_counter: f32,
+        rotation: f32,
+    },
+    PowerTurret {
+        reload_counter: f32,
+        rotation: f32,
+    },
+    LaserTurret {
+        reload_counter: f32,
+        rotation: f32,
+    },
+    // TODO UnitAssemblerModule
+    Memory {
+        memory: Vec<f64>,
+    },
+    // TODO LogicDisplay
+    // TODO LogicBlock
+    Canvas {
+        data: Vec<u8>,
+    },
+    // TODO Build
+}
+
+fn read_specific_block_data(
     reader: &mut Reader,
     block_name: String,
     block_type: String,
     version: u8,
     content_map: &HashMap<String, Vec<String>>,
-) {
+) -> Option<SpecificBlockData> {
     if block_type == "GenericCrafter"
         || block_type == "Separator"
         || block_type == "HeatProducer"
@@ -67,61 +203,46 @@ fn read_main(
         //}
         //return result
     } else if block_type == "Door" || block_type == "AutoDoor" {
-        let open = reader.byte();
-        //let result = {
-        //  open
-        //}
-        //return result
+        let open = reader.bool();
+        return Some(SpecificBlockData::Door { open });
     } else if block_type == "ShieldWall" {
         let shield = reader.float();
-        //let result = {
-        // shield
-        //
-        //return result
-    } else if block_type == "MendProjector" || block_type == "OverdriveProjector" {
+        return Some(SpecificBlockData::ShieldWall { shield });
+    } else if block_type == "MendProjector" {
         let heat = reader.float();
-        let pheat = reader.float();
-        //let result = {
-        //  heat,
-        //  pheat
-        //}
-        //return result
+        let phase_heat = reader.float();
+        return Some(SpecificBlockData::MendProjector { heat, phase_heat });
+    } else if block_type == "OverdriveProjector" {
+        let heat = reader.float();
+        let phase_heat = reader.float();
+        return Some(SpecificBlockData::OverdriveProjector { heat, phase_heat });
     } else if block_type == "ForceProjector" {
-        let broken = reader.byte();
+        let broken = reader.bool();
         let buildup = reader.float();
-        let radscl = reader.float();
+        let radius_scale = reader.float();
         let warmup = reader.float();
-        let pheat = reader.float();
-        //let result = {
-        //  broken,
-        //  buildup,
-        //  radscl,
-        //  warmup,
-        //  pheat
-        //}
-        //return result
+        let phase_heat = reader.float();
+        return Some(SpecificBlockData::ForceProjector {
+            broken,
+            buildup,
+            radius_scale,
+            warmup,
+            phase_heat,
+        });
     } else if block_type == "Radar" {
         let progress = reader.float();
-        //let result = {
-        //  progress
-        //}
-        //return result
+        return Some(SpecificBlockData::Radar { progress });
     } else if block_type == "BuildTurret" {
         let rotation = reader.float();
         let plans = read_plans(reader);
-        //let result = {
-        //  rotation,
-        //  plans
-        //}
-        //return result
+        return Some(SpecificBlockData::BuildTurret { rotation, plans });
     } else if block_type == "BaseShield" {
-        let sradius = reader.float();
-        let broken = reader.byte();
-        //let result = {
-        //  sradius,
-        //  broken
-        //}
-        //return result
+        let smooth_radius = reader.float();
+        let broken = reader.bool();
+        return Some(SpecificBlockData::BaseShield {
+            smooth_radius,
+            broken,
+        });
     } else if block_type == "Conveyor" || block_type == "ArmoredConveyor" {
         let amount = reader.int();
         //let map = []
@@ -256,12 +377,11 @@ fn read_main(
         let link = reader.int();
         let rotation = reader.float();
         let state = reader.byte();
-        //let result = {
-        //  link,
-        //  rotation,
-        //  state
-        //}
-        //return result
+        return Some(SpecificBlockData::MassDriver {
+            link,
+            rotation,
+            state: MassDriverState::try_from(state).unwrap(),
+        });
     } else if block_type == "Duct" {
         let recDir;
         if version >= 1 {
@@ -333,10 +453,7 @@ fn read_main(
         //return result
     } else if block_type == "HeaterGenerator" {
         let heat = reader.float();
-        //let result = {
-        //  heat
-        //}
-        //return result
+        return Some(SpecificBlockData::HeaterGenerator { heat });
     } else if block_type == "Drill" || block_type == "BeamDrill" || block_type == "BurstDrill" {
         let progress;
         let warmup;
@@ -356,17 +473,12 @@ fn read_main(
         //}
         //return result
     } else if block_type == "Unloader" {
-        let id;
-        if version == 1 {
-            id = reader.short();
+        let item_id = if version == 1 {
+            reader.short()
         } else {
-            /*id =*/
-            reader.byte();
-        }
-        //let result = {
-        //  id
-        //}
-        //return result
+            reader.byte() as i16
+        };
+        return Some(SpecificBlockData::Unloader { item_id });
     } else if block_type == "ItemTurret" {
         let reloadc = reader.float();
         let rotation = reader.float();
@@ -404,6 +516,9 @@ fn read_main(
         //  ll
         //}
         //return result
+    } else if block_type == "RepairTurret" {
+        let rotation = reader.float();
+        return Some(SpecificBlockData::RepairTurret { rotation });
     } else if block_type == "UnitFactory" || block_type == "Reconstructor" {
         let px = reader.float();
         let py = reader.float();
@@ -436,12 +551,6 @@ fn read_main(
         //  currentplan,
         //  commandpos,
         //  command
-        //}
-        //return result
-    } else if block_type == "RepairTurret" {
-        let rotation = reader.float();
-        //let result = {
-        //  rotation
         //}
         //return result
     } else if block_type == "UnitAssembler" {
@@ -572,17 +681,11 @@ fn read_main(
         //}
         //return result
     } else if block_type == "ItemSource" {
-        let item = reader.short();
-        //let result = {
-        //  item
-        //}
-        //return result
+        let item_id = reader.short();
+        return Some(SpecificBlockData::ItemSource { item_id });
     } else if block_type == "LiquidSource" {
-        let id = reader.short();
-        //let result = {
-        //  id
-        //}
-        //return result
+        let liquid_id = reader.short();
+        return Some(SpecificBlockData::LiquidSource { liquid_id });
     } else if block_type == "PayloadSource" {
         let px = reader.float();
         let py = reader.float();
@@ -601,10 +704,7 @@ fn read_main(
         //return result
     } else if block_type == "LightBlock" {
         let color = reader.int();
-        //let result = {
-        //  color
-        //}
-        //return result
+        return Some(SpecificBlockData::LightBlock { color });
     } else if block_type == "LaunchPad" {
         let lc = reader.float();
         //let result = {
@@ -613,22 +713,13 @@ fn read_main(
         //return result
     } else if block_type == "Accelerator" {
         let progress = reader.float();
-        //let result = {
-        //  progress
-        //}
-        //return result
+        return Some(SpecificBlockData::Accelerator { progress });
     } else if block_type == "MessageBlock" {
-        let str = read_string(reader);
-        //let result = {
-        //  str
-        //}
-        //return result
+        let message = read_string(reader);
+        return Some(SpecificBlockData::Message { message });
     } else if block_type == "SwitchBlock" {
-        let en = reader.byte();
-        //let result = {
-        //  en
-        //}
-        //return result
+        let enabled = reader.bool();
+        return Some(SpecificBlockData::Switch { enabled });
     } else if block_type == "ConsumeGenerator"
         || block_type == "ThermalGenerator"
         || block_type == "SolarGenerator"
@@ -646,17 +737,33 @@ fn read_main(
         //  sortitem
         //}
         //return result
-    } else if block_type == "LiquidTurret"
-        || block_type == "PowerTurret"
-        || block_type == "LaserTurret"
-    {
-        let reloadc = reader.float();
-        let rotation = reader.float();
-        //let result = {
-        //  reloadc,
-        //  rotation
-        //}
-        //return result
+    } else if block_type == "LiquidTurret" {
+        if version >= 1 {
+            let reload_counter = reader.float();
+            let rotation = reader.float();
+            return Some(SpecificBlockData::LiquidTurret {
+                reload_counter,
+                rotation,
+            });
+        }
+    } else if block_type == "PowerTurret" {
+        if version >= 1 {
+            let reload_counter = reader.float();
+            let rotation = reader.float();
+            return Some(SpecificBlockData::PowerTurret {
+                reload_counter,
+                rotation,
+            });
+        }
+    } else if block_type == "LaserTurret" {
+        if version >= 1 {
+            let reload_counter = reader.float();
+            let rotation = reader.float();
+            return Some(SpecificBlockData::LaserTurret {
+                reload_counter,
+                rotation,
+            });
+        }
     } else if block_type == "UnitAssemblerModule" {
         let px = reader.float();
         let py = reader.float();
@@ -671,15 +778,14 @@ fn read_main(
         //return result
     } else if block_type == "MemoryBlock" {
         let amount = reader.int();
-        //let memory = [];
-        for i in 0..amount {
+        let mut memory = vec![];
+
+        for _ in 0..amount {
             let value = reader.double();
-            //memory[i] = value
+            memory.push(value)
         }
-        //let result = {
-        //  memory
-        //}
-        //return result
+
+        return Some(SpecificBlockData::Memory { memory });
     } else if block_type == "LogicDisplay" {
         if version >= 1 {
             let has_transform = reader.bool();
@@ -759,10 +865,8 @@ fn read_main(
     } else if block_type == "CanvasBlock" {
         let length = reader.int();
         let bytes = reader.bytes(length as usize);
-        //let result = {
-        //  data
-        //}
-        //return result
+
+        return Some(SpecificBlockData::Canvas { data: bytes });
     } else if block_type.starts_with("Build") {
         let progress = reader.float();
         let pid = reader.short();
@@ -794,9 +898,13 @@ fn read_main(
         //}
         //return result
     } else {
-        //return null
+        return None;
     }
+
+    println!("Unknown block type: {block_type}");
+    None
 }
+
 fn read_payload_seq(reader: &mut Reader) {
     let amount = reader.short();
     //let ent = []
@@ -809,7 +917,7 @@ fn read_payload_seq(reader: &mut Reader) {
 }
 
 #[derive(Debug)]
-struct BlockBaseData {
+pub struct BaseBlockData {
     health: f32,
     rotation: u8,
     version: u8,
@@ -821,7 +929,7 @@ struct BlockBaseData {
     liquids: Option<HashMap<i16, u32>>,
     power: Option<BlockPowerData>,
 }
-fn read_base_block_data(reader: &mut Reader, id: String) -> BlockBaseData {
+fn read_base_block_data(reader: &mut Reader, id: String) -> BaseBlockData {
     let block_params = load_block_params();
 
     let health = reader.float();
@@ -880,7 +988,7 @@ fn read_base_block_data(reader: &mut Reader, id: String) -> BlockBaseData {
         opteff = reader.byte();
     }
 
-    BlockBaseData {
+    BaseBlockData {
         health,
         rotation,
         team,
@@ -966,15 +1074,19 @@ fn read_block_power(reader: &mut Reader) -> BlockPowerData {
     BlockPowerData { links, status }
 }
 
-pub fn readAll(
+pub struct Block {
+    pub base: BaseBlockData,
+    pub specific: Option<SpecificBlockData>,
+}
+
+pub fn read_block(
     reader: &mut Reader,
     id: String,
     block_type: String,
     version: u8,
     content_map: &HashMap<String, Vec<String>>,
-) {
+) -> Block {
     let base = read_base_block_data(reader, id.clone());
-
-    let main = read_main(reader, id, block_type, version, content_map);
-    //return [base, main]
+    let specific = read_specific_block_data(reader, id, block_type, version, content_map);
+    Block { base, specific }
 }
