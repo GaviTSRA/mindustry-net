@@ -3,6 +3,8 @@ use mindustry_net::packet::Packet;
 
 #[tokio::main]
 async fn main() {
+    // let mut client =
+    // Client::new("130.162.212.232:6507".parse().unwrap(), "Swarm".to_string()).await;
     let mut client = Client::new("127.0.0.1:6567".parse().unwrap(), "Swarm".to_string()).await;
     let state = client.state.clone();
 

@@ -1,4 +1,4 @@
-use crate::block_io::read_block;
+use crate::block_io::{Block, read_block};
 use crate::type_io::{Reader, read_string};
 use colored::{Color, Colorize};
 use serde::Deserialize;
@@ -60,24 +60,27 @@ pub fn read_content_header(reader: &mut Reader) -> HashMap<String, Vec<String>> 
     result
 }
 
-#[derive(Clone)]
-struct MapTile {
-    floor: i16,
-    ore: Option<i16>,
-    block: Option<i16>,
+#[derive(Clone, Debug)]
+pub struct MapTile {
+    pub floor: i16,
+    pub ore: Option<i16>,
+    pub block_id: Option<i16>,
+    pub block: Option<Block>,
 }
 
-struct Map {
+#[derive(Debug)]
+pub struct Map {
     width: u32,
     height: u32,
     tiles: Vec<Vec<MapTile>>,
 }
 impl Map {
-    fn new(width: u32, height: u32) -> Self {
+    pub fn new(width: u32, height: u32) -> Self {
         let row = vec![
             MapTile {
                 floor: 0,
                 ore: None,
+                block_id: None,
                 block: None,
             };
             width as usize
@@ -95,7 +98,7 @@ impl Map {
         self.tiles.get(y as usize)?.get(x as usize)
     }
 
-    fn get_mut(&mut self, x: u32, y: u32) -> Option<&mut MapTile> {
+    pub fn get_mut(&mut self, x: u32, y: u32) -> Option<&mut MapTile> {
         self.tiles
             .get_mut(y as usize)
             .and_then(|r| r.get_mut(x as usize))
@@ -113,7 +116,17 @@ impl Map {
         }
     }
 
-    pub fn set_block(&mut self, x: u32, y: u32, block: i16) {
+    pub fn set_block_id(&mut self, x: u32, y: u32, block: i16) {
+        if let Some(tile) = self
+            .tiles
+            .get_mut(y as usize)
+            .and_then(|r| r.get_mut(x as usize))
+        {
+            tile.block_id = Some(block);
+        }
+    }
+
+    pub fn set_block(&mut self, x: u32, y: u32, block: Block) {
         if let Some(tile) = self
             .tiles
             .get_mut(y as usize)
@@ -129,7 +142,7 @@ impl Map {
                 if let Some(tile) = self.get(x, y) {
                     let color = color_from_number(tile.floor);
 
-                    if let Some(block) = tile.block {
+                    if let Some(block) = tile.block_id {
                         print!("{}", "  ".on_black());
                     } else if let Some(ore) = tile.ore {
                         let ore_color = color_from_number(ore);
@@ -144,7 +157,7 @@ impl Map {
     }
 }
 
-pub fn read_map(mut reader: &mut Reader, content_map: &HashMap<String, Vec<String>>) {
+pub fn read_map(mut reader: &mut Reader, content_map: &HashMap<String, Vec<String>>) -> Map {
     let width = reader.short() as u32;
     let height = reader.short() as u32;
     println!("{width} x {height}");
@@ -219,7 +232,7 @@ pub fn read_map(mut reader: &mut Reader, content_map: &HashMap<String, Vec<Strin
         //set block only if this is the center; otherwise, it's handled elsewhere
         if is_center {
             if block_id != 0 {
-                map.set_block(x, y, block_id);
+                map.set_block_id(x, y, block_id);
             }
         }
 
@@ -261,23 +274,7 @@ pub fn read_map(mut reader: &mut Reader, content_map: &HashMap<String, Vec<Strin
                     )
                 }
 
-                //if(block.hasBuilding()){
-                //let length = read_int(&mut data);
-                //  try{
-                //    readChunkReads(stream, (in, len) -> {
-                //      byte revision = in.b();
-                //      tile.build.readAll(in, revision);
-                //    });
-                //  }catch(Throwable e){
-                //    throw new IOException("Failed to read tile entity of block: " + block, e);
-                //  }
-                //} else {
-                // skip the entity region, as the entity and its IO code are now gone
-                //let length = read_int(&mut data);
-                //data.drain(0..length as usize);
-                //}
-
-                //context.onReadBuilding();
+                map.set_block(x, y, block);
             }
         } else if !had_data {
             //never read consecutive blocks if there's data
@@ -287,7 +284,7 @@ pub fn read_map(mut reader: &mut Reader, content_map: &HashMap<String, Vec<Strin
                 let new_x = j % width;
                 let new_y = j / width;
                 if block_id != 0 {
-                    map.set_block(new_x, new_y, block_id);
+                    map.set_block_id(new_x, new_y, block_id);
                 }
                 j += 1;
             }
@@ -299,4 +296,5 @@ pub fn read_map(mut reader: &mut Reader, content_map: &HashMap<String, Vec<Strin
     }
 
     // map.visualize();
+    map
 }

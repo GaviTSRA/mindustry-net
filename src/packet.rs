@@ -1,7 +1,9 @@
-use crate::save_io::{read_content_header, read_map};
+use crate::block_io::{Block, read_block};
+use crate::save_io::{Map, read_content_header, read_map};
 use crate::type_io::{
-    KickReason, Reader, Unit, read_kick, read_prefixed_string, read_string, read_string_map,
-    write_byte, write_float, write_int, write_string, write_unit, write_unsigned_short,
+    KickReason, Object, Reader, Tile, Unit, read_kick, read_object, read_prefixed_string,
+    read_string, read_string_map, read_tile, read_unit, write_byte, write_float, write_int,
+    write_string, write_unit, write_unsigned_short,
 };
 use crate::unit_io::{FullUnit, Plan, read_full_unit, write_plans};
 use base64::Engine;
@@ -62,6 +64,7 @@ pub enum Packet {
         seed1: u64,
         id: u32,
         content_map: HashMap<String, Vec<String>>, /* more */
+        map: Map,
     },
     // [03] Connect to server
     Connect {
@@ -83,6 +86,11 @@ pub enum Packet {
         x: u32,
         y: u32,
         rotation: u32,
+    },
+    // [11] Block Snapshot
+    BlockSnapshot {
+        amount: i16,
+        data: Vec<u8>,
     },
     // [18] Client Snapshot
     ClientSnapshot {
@@ -111,6 +119,15 @@ pub enum Packet {
     },
     // [22] Confirm connect call
     ConnectCallConfirm,
+    // [23] Construct Finish call
+    ContructFinishCall {
+        tile: Tile,
+        block: i16,
+        builder: Unit,
+        rotation: u8,
+        team: u8,
+        config: Object,
+    },
     // [34] Entity snapshot call
     EntitySnapshot {
         units: HashMap<u32, FullUnit>,
@@ -129,6 +146,12 @@ pub enum Packet {
         tile_y: i16,
         entity: u32,
     },
+    // [69] Rotate Block Call
+    RotateBlockCall {
+        entity: u32,
+        tile: Tile,
+        rotation: u8,
+    },
     // [71] Send a chat message to server
     SendChatMessageCall {
         message: String,
@@ -141,6 +164,19 @@ pub enum Packet {
     },
     // [86] Set position call
     // SetPositionCall { x: f32, y: f32 },
+    // [94] StateSnapshot
+    StateSnapshot {
+        wave_time: f32,
+        wave: u32,
+        enemies: u32,
+        paused: bool,
+        game_over: bool,
+        time_data: u32,
+        tps: u8,
+        rand0: u64,
+        rand1: u64,
+        core_data: Vec<u8>,
+    },
     Other(u8),
 }
 
@@ -241,7 +277,7 @@ pub fn parse_regular_packet(
     mut reader: Reader,
     content_map: &Option<HashMap<String, Vec<String>>>,
 ) -> Result<Packet, PacketError> {
-    //println!("{id}");
+    // println!("{id}");
 
     match id {
         0 => {
@@ -304,7 +340,7 @@ pub fn parse_regular_packet(
             let default_content_map_data = serde_json::to_string(&content_map).unwrap();
             fs::write(&default_content_map_path, default_content_map_data).unwrap();
 
-            read_map(&mut reader, &content_map);
+            let map = read_map(&mut reader, &content_map);
 
             println!("Remaining data: {}", reader.remaining()); // TODO
 
@@ -316,6 +352,30 @@ pub fn parse_regular_packet(
                 seed1,
                 id,
                 content_map,
+                map,
+            })
+        }
+        11 => {
+            let amount = reader.short();
+            let data_length = reader.short();
+            let data = reader.bytes(data_length as usize);
+            println!("Did not read {}", reader.remaining());
+            Ok(Packet::BlockSnapshot { amount, data })
+        }
+        23 => {
+            let tile = read_tile(&mut reader);
+            let block = reader.short();
+            let builder = read_unit(&mut reader);
+            let rotation = reader.byte();
+            let team = reader.byte();
+            let config = read_object(&mut reader);
+            Ok(Packet::ContructFinishCall {
+                tile,
+                block,
+                builder,
+                rotation,
+                team,
+                config,
             })
         }
         34 => {
@@ -354,6 +414,16 @@ pub fn parse_regular_packet(
                 entity,
             })
         }
+        69 => {
+            let entity = reader.int();
+            let tile = read_tile(&mut reader);
+            let rotation = reader.byte();
+            Ok(Packet::RotateBlockCall {
+                entity,
+                tile,
+                rotation,
+            })
+        }
         73 => {
             let message = read_prefixed_string(&mut reader).unwrap();
             let unformatted = read_prefixed_string(&mut reader);
@@ -362,6 +432,33 @@ pub fn parse_regular_packet(
                 message,
                 unformatted,
                 sender,
+            })
+        }
+        94 => {
+            let wave_time = reader.float();
+            let wave = reader.int();
+            let enemies = reader.int();
+            let paused = reader.bool();
+            let game_over = reader.bool();
+            let time_data = reader.int();
+            let tps = reader.byte();
+            let rand0 = reader.long();
+            let rand1 = reader.long();
+
+            let length = reader.short();
+            let core_data = reader.bytes(length as usize);
+
+            Ok(Packet::StateSnapshot {
+                wave_time,
+                wave,
+                enemies,
+                paused,
+                game_over,
+                time_data,
+                tps,
+                rand0,
+                rand1,
+                core_data,
             })
         }
         id => Ok(Packet::Other(id)),

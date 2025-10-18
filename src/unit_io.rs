@@ -387,8 +387,7 @@ pub enum FullUnit {
         life: f32,
         opacity: f32,
         weather: i16,
-        wind_x: f32,
-        wind_y: f32,
+        wind: Vec2,
     },
     WorldLabel {
         revision: Option<i16>,
@@ -553,8 +552,7 @@ pub fn read_full_unit(
             life: reader.float(),
             opacity: reader.float(),
             weather: reader.short(),
-            wind_x: reader.float(),
-            wind_y: reader.float(),
+            wind: read_vec2(reader),
         };
     } else if unit_type == &"WorldLabel" {
         return FullUnit::WorldLabel {

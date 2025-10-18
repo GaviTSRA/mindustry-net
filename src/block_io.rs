@@ -38,6 +38,7 @@ enum MassDriverState {
     Shooting = 2,
 }
 
+#[derive(Debug, Clone)]
 pub enum SpecificBlockData {
     // TODO GenericCrafter
     // TODO Separator
@@ -901,7 +902,7 @@ fn read_specific_block_data(
         return None;
     }
 
-    println!("Unknown block type: {block_type}");
+    // println!("Unknown block type: {block_type}");
     None
 }
 
@@ -916,18 +917,18 @@ fn read_payload_seq(reader: &mut Reader) {
     //return ent
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BaseBlockData {
-    health: f32,
-    rotation: u8,
-    version: u8,
-    legacy: bool,
-    on: Option<u8>,
-    team: u8,
-    module_bitmask: u8,
-    items: Option<HashMap<i16, u32>>,
-    liquids: Option<HashMap<i16, u32>>,
-    power: Option<BlockPowerData>,
+    pub health: f32,
+    pub rotation: u8,
+    pub version: u8,
+    pub legacy: bool,
+    pub on: Option<u8>,
+    pub team: u8,
+    pub module_bitmask: u8,
+    pub items: Option<HashMap<i16, u32>>,
+    pub liquids: Option<HashMap<i16, u32>>,
+    pub power: Option<BlockPowerData>,
 }
 fn read_base_block_data(reader: &mut Reader, id: String) -> BaseBlockData {
     let block_params = load_block_params();
@@ -1055,7 +1056,7 @@ fn read_block_liquids(reader: &mut Reader, legacy: bool) -> HashMap<i16, u32> {
     liquids
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct BlockPowerData {
     links: Vec<u32>,
     status: f32,
@@ -1074,6 +1075,7 @@ fn read_block_power(reader: &mut Reader) -> BlockPowerData {
     BlockPowerData { links, status }
 }
 
+#[derive(Debug, Clone)]
 pub struct Block {
     pub base: BaseBlockData,
     pub specific: Option<SpecificBlockData>,

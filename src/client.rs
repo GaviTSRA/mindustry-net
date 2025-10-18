@@ -1,9 +1,11 @@
+use crate::block_io::read_block;
 use crate::packet::{
     AnyPacket, FrameworkPacket, Packet, read_packet_tcp, read_packet_udp, write_framework_packet,
     write_packet,
 };
+use crate::save_io::{Map, load_block_types};
 use crate::stream_builder::StreamBuilder;
-use crate::type_io::Unit;
+use crate::type_io::{Reader, Unit, read_tile};
 use crate::unit_io::{FullUnit, Plan};
 use std::collections::HashMap;
 use std::fs;
@@ -32,6 +34,7 @@ pub struct State {
     pub plans: Vec<Plan>,
 
     units: HashMap<u32, FullUnit>,
+    map: Map,
 }
 
 pub struct Client {
@@ -121,6 +124,7 @@ impl Client {
                 plans: vec![],
 
                 units: HashMap::new(),
+                map: Map::new(0, 0),
             })),
             username,
             rx_in,
@@ -291,31 +295,69 @@ impl Client {
             }
             Packet::WorldStream {
                 id,
-                wave,
-                wave_time,
-                tick,
-                seed0,
-                seed1,
                 content_map: content,
+                map,
+                ..
             } => {
                 let mut current_state = self.state.lock().await;
                 current_state.player_id = id;
+                current_state.map = map;
 
                 {
                     let mut content_map = self.content_map.write().await;
                     *content_map = Some(content.clone());
                 }
 
-                Some(Packet::WorldStream {
-                    id,
-                    wave,
-                    wave_time,
-                    tick,
-                    seed0,
-                    seed1,
-                    content_map: content,
-                })
-                //None
+                None
+            }
+            Packet::ContructFinishCall {
+                tile,
+                block,
+                builder,
+                rotation,
+                team,
+                config,
+            } => {
+                println!(
+                    "Construct finish at {tile:?}: Block {block} by {builder:?} ({rotation}, {team}) - {config:?}"
+                );
+                None
+            }
+            Packet::BlockSnapshot { amount, data } => {
+                let mut reader = Reader::new(data);
+                for _ in 0..amount {
+                    let tile = read_tile(&mut reader);
+                    let block_id = reader.short();
+
+                    let state = self.state.lock().await;
+                    let map_tile = state.map.get(tile.x as u32, tile.y as u32).unwrap();
+                    if map_tile.block_id.unwrap() != block_id {
+                        panic!(
+                            "Invalid block id at {tile:?}: Expected {block_id} but found {:?}",
+                            map_tile.block_id
+                        );
+                    }
+
+                    let block_types = load_block_types();
+                    let content = self.content_map.read().await.clone().unwrap();
+
+                    let block_name = content
+                        .get("block")
+                        .unwrap()
+                        .get(block_id as usize)
+                        .unwrap();
+                    let block_type = block_types.get(block_name).unwrap();
+
+                    let content_map = self.content_map.read().await;
+                    let block = read_block(
+                        &mut reader,
+                        block_name.clone(),
+                        block_type.clone(),
+                        map_tile.block.clone().unwrap().base.version,
+                        &content_map.clone().unwrap(),
+                    );
+                }
+                None
             }
             Packet::EntitySnapshot { units } => {
                 let mut current_state = self.state.lock().await;
@@ -366,6 +408,28 @@ impl Client {
                 }
                 None
             }
+            Packet::RotateBlockCall {
+                entity,
+                tile,
+                rotation,
+            } => {
+                let mut state = self.state.lock().await;
+                state
+                    .map
+                    .get_mut(tile.x as u32, tile.y as u32)
+                    .unwrap()
+                    .block
+                    .as_mut()
+                    .unwrap()
+                    .base
+                    .rotation = rotation;
+
+                println!(
+                    "Updated rotation: {:?}",
+                    state.map.get(tile.x as u32, tile.y as u32).unwrap().block
+                );
+                None
+            }
             Packet::SendMessageCall2 {
                 message,
                 unformatted,
@@ -375,7 +439,12 @@ impl Client {
                 unformatted,
                 sender,
             }),
-            //Packet::Other(id) => println!(">> {id}"),
+            // TODO
+            Packet::StateSnapshot { .. } => None,
+            Packet::Other(id) => {
+                println!(">> {id}");
+                None
+            }
             _ => None,
         }
     }

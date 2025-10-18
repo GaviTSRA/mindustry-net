@@ -318,12 +318,9 @@ pub fn read_string_map(reader: &mut Reader) -> HashMap<String, Option<String>> {
     let mut data = HashMap::new();
 
     let size = reader.short();
-    println!("size: {}", size);
     for _ in 0..size {
         let key = read_string(reader).unwrap();
         let value = read_string(reader);
-        println!("key: {}", key);
-        println!("value: {:?}", value);
         data.insert(key, value);
     }
 
