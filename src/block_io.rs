@@ -1,5 +1,7 @@
+use crate::arc_types::Point2;
 use crate::type_io::{
-    Reader, read_command, read_object_boxed, read_prefixed_string, read_string, read_vec2_nullable,
+    Reader, Tile, read_command, read_object_boxed, read_prefixed_string, read_string,
+    read_vec2_nullable,
 };
 use crate::unit_io::{Plan, read_payload, read_plans};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -1057,9 +1059,9 @@ fn read_block_liquids(reader: &mut Reader, legacy: bool) -> HashMap<i16, u32> {
 }
 
 #[derive(Debug, Clone)]
-struct BlockPowerData {
-    links: Vec<u32>,
-    status: f32,
+pub struct BlockPowerData {
+    pub links: Vec<Tile>,
+    pub status: f32,
 }
 fn read_block_power(reader: &mut Reader) -> BlockPowerData {
     let amount = reader.short();
@@ -1067,7 +1069,12 @@ fn read_block_power(reader: &mut Reader) -> BlockPowerData {
 
     for _ in 0..amount {
         let link = reader.int();
-        links.push(link)
+        let data = Point2::unpack(link);
+        let tile = Tile {
+            x: data.x,
+            y: data.y,
+        };
+        links.push(tile)
     }
 
     let status = reader.float();
