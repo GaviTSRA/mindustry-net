@@ -1,4 +1,3 @@
-use crate::block_io::{Block, read_block};
 use crate::save_io::{Map, read_content_header, read_map};
 use crate::type_io::{
     KickReason, Object, Reader, Tile, Unit, read_kick, read_object, read_prefixed_string,
@@ -176,6 +175,12 @@ pub enum Packet {
         rand0: u64,
         rand1: u64,
         core_data: Vec<u8>,
+    },
+    // [99] TileConfigCall
+    TileConfigCall {
+        player: u32,
+        tile: Tile,
+        value: Object,
     },
     Other(u8),
 }
@@ -459,6 +464,17 @@ pub fn parse_regular_packet(
                 rand0,
                 rand1,
                 core_data,
+            })
+        }
+        99 => {
+            let player = reader.int();
+            let tile = read_tile(&mut reader);
+            let value = read_object(&mut reader);
+            println!("Config: {tile:?} {value:?}");
+            Ok(Packet::TileConfigCall {
+                player,
+                tile,
+                value,
             })
         }
         id => Ok(Packet::Other(id)),

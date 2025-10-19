@@ -34,7 +34,7 @@ fn load_block_params() -> HashMap<String, BlockParam> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
-enum MassDriverState {
+pub enum MassDriverState {
     Idle = 0,
     Accepting = 1,
     Shooting = 2,

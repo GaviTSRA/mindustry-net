@@ -5,7 +5,7 @@ use crate::packet::{
 };
 use crate::save_io::{Map, load_block_types};
 use crate::stream_builder::StreamBuilder;
-use crate::type_io::{Reader, Unit, read_tile};
+use crate::type_io::{Reader, Tile, Unit, read_tile};
 use crate::unit_io::{FullUnit, Plan};
 use std::collections::HashMap;
 use std::fs;
@@ -45,6 +45,20 @@ pub struct Client {
     tx_out: mpsc::Sender<QueuedPacket>,
     streams: HashMap<u32, StreamBuilder>,
     content_map: Arc<RwLock<Option<HashMap<String, Vec<String>>>>>,
+}
+
+// TODO improve included data
+pub enum ClientEvent {
+    MapLoaded,
+    BlockChanged {
+        tile: Tile,
+    },
+    UnitSnapshot,
+    ChatMessage {
+        message: String,
+        unformatted: Option<String>,
+        sender: u32,
+    },
 }
 
 impl Client {
@@ -143,20 +157,17 @@ impl Client {
         self.tx_in.send(packet).await.unwrap();
     }
 
-    pub async fn handle_packets(&mut self) -> Option<Packet> {
+    pub async fn handle_packets(&mut self, channel: mpsc::Sender<ClientEvent>) {
         while let Some(packet) = self.rx_in.recv().await {
             match packet {
                 AnyPacket::Framework(packet) => {
                     self.handle_framework_packet(packet).await;
                 }
                 AnyPacket::Regular(packet) => {
-                    if let Some(to_user) = self.handle_regular_packet(packet).await {
-                        return Some(to_user);
-                    }
+                    self.handle_regular_packet(packet, &channel).await;
                 }
             }
         }
-        None
     }
 
     async fn handle_framework_packet(&mut self, packet: FrameworkPacket) {
@@ -265,7 +276,7 @@ impl Client {
         }
     }
 
-    async fn handle_regular_packet(&mut self, packet: Packet) -> Option<Packet> {
+    async fn handle_regular_packet(&mut self, packet: Packet, sender: &mpsc::Sender<ClientEvent>) {
         match packet {
             Packet::StreamBegin {
                 id,
@@ -274,14 +285,13 @@ impl Client {
             } => {
                 self.streams
                     .insert(id, StreamBuilder::new(id, stream_type, total));
-                None
             }
             Packet::StreamChunk { id, data } => {
                 let stream = match self.streams.get_mut(&id) {
                     Some(stream) => stream,
                     None => {
-                        println!("Stream {id} not found!");
-                        return None;
+                        eprintln!("Stream {id} not found!");
+                        return;
                     }
                 };
                 stream.add(data);
@@ -291,7 +301,6 @@ impl Client {
                     let packet = stream.build(&content).unwrap();
                     self.queue_in_packet(AnyPacket::Regular(packet)).await;
                 }
-                None
             }
             Packet::WorldStream {
                 id,
@@ -308,29 +317,28 @@ impl Client {
                     *content_map = Some(content.clone());
                 }
 
-                None
+                sender.send(ClientEvent::MapLoaded).await.unwrap();
             }
-            Packet::ContructFinishCall {
-                tile,
-                block,
-                builder,
-                rotation,
-                team,
-                config,
-            } => {
-                println!(
-                    "Construct finish at {tile:?}: Block {block} by {builder:?} ({rotation}, {team}) - {config:?}"
-                );
-                None
+            Packet::ContructFinishCall { tile, block, .. } => {
+                let mut state = self.state.lock().await;
+                let map_tile = state.map.get_mut(tile.x as u32, tile.y as u32).unwrap();
+                map_tile.block_id = Some(block);
+                // TODO: Update config
+
+                sender
+                    .send(ClientEvent::BlockChanged { tile })
+                    .await
+                    .unwrap();
             }
             Packet::BlockSnapshot { amount, data } => {
                 let mut reader = Reader::new(data);
+                let mut state = self.state.lock().await;
+
                 for _ in 0..amount {
                     let tile = read_tile(&mut reader);
                     let block_id = reader.short();
 
-                    let state = self.state.lock().await;
-                    let map_tile = state.map.get(tile.x as u32, tile.y as u32).unwrap();
+                    let map_tile = state.map.get_mut(tile.x as u32, tile.y as u32).unwrap();
                     if map_tile.block_id.unwrap() != block_id {
                         panic!(
                             "Invalid block id at {tile:?}: Expected {block_id} but found {:?}",
@@ -356,8 +364,14 @@ impl Client {
                         map_tile.block.clone().unwrap().base.version,
                         &content_map.clone().unwrap(),
                     );
+
+                    map_tile.block = Some(block);
+
+                    sender
+                        .send(ClientEvent::BlockChanged { tile })
+                        .await
+                        .unwrap();
                 }
-                None
             }
             Packet::EntitySnapshot { units } => {
                 let mut current_state = self.state.lock().await;
@@ -366,6 +380,7 @@ impl Client {
                 match possible_unit {
                     Some(unit) => match unit {
                         FullUnit::Player { unit, x, y, .. } => {
+                            // TODO pos changed event?
                             if current_state.x == -1.0 {
                                 current_state.x = x;
                                 println!("Update x: {}", x);
@@ -383,69 +398,59 @@ impl Client {
                 };
 
                 current_state.units = units;
-                None
+
+                sender.send(ClientEvent::UnitSnapshot).await.unwrap();
             }
             Packet::KickCall { reason } => {
-                println!("Kicked: {reason}");
-                None
+                eprintln!("Kicked: {reason}");
             }
             Packet::KickCall2 { reason } => {
-                println!("Kicked: {reason:?}");
-                None
+                eprintln!("Kicked: {reason:?}");
             }
             Packet::SpawnCall {
                 tile_x,
                 tile_y,
                 entity,
             } => {
+                // TODO player spawned event?
                 println!("Spawn call: {tile_x}/{tile_y} {entity}");
                 let mut current_state = self.state.lock().await;
                 println!("{}", current_state.player_id);
                 if current_state.player_id == entity {
+                    // TODO pos change event?
                     println!("Set coords");
                     current_state.x = (tile_x * 8) as f32;
                     current_state.y = (tile_y * 8) as f32;
                 }
-                None
             }
-            Packet::RotateBlockCall {
-                entity,
-                tile,
-                rotation,
-            } => {
+            Packet::RotateBlockCall { tile, rotation, .. } => {
                 let mut state = self.state.lock().await;
-                state
-                    .map
-                    .get_mut(tile.x as u32, tile.y as u32)
-                    .unwrap()
-                    .block
-                    .as_mut()
-                    .unwrap()
-                    .base
-                    .rotation = rotation;
+                let map_tile = state.map.get_mut(tile.x as u32, tile.y as u32).unwrap();
+                map_tile.block.as_mut().unwrap().base.rotation = rotation;
 
-                println!(
-                    "Updated rotation: {:?}",
-                    state.map.get(tile.x as u32, tile.y as u32).unwrap().block
-                );
-                None
+                sender
+                    .send(ClientEvent::BlockChanged { tile })
+                    .await
+                    .unwrap();
             }
             Packet::SendMessageCall2 {
                 message,
                 unformatted,
-                sender,
-            } => Some(Packet::SendMessageCall2 {
-                message,
-                unformatted,
-                sender,
-            }),
-            // TODO
-            Packet::StateSnapshot { .. } => None,
-            Packet::Other(id) => {
-                println!(">> {id}");
-                None
+                sender: author,
+            } => {
+                sender
+                    .send(ClientEvent::ChatMessage {
+                        message,
+                        unformatted,
+                        sender: author,
+                    })
+                    .await
+                    .unwrap();
             }
-            _ => None,
+            Packet::Other(id) => {
+                eprintln!("Unhandled packet: {id}");
+            }
+            _ => {}
         }
     }
 }

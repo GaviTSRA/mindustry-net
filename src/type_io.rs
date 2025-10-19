@@ -1,6 +1,8 @@
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::collections::HashMap;
 
+use crate::arc_types::Point2;
+
 pub struct Reader {
     buf: Vec<u8>,
     pos: usize,
@@ -99,6 +101,9 @@ pub fn write_long(buf: &mut Vec<u8>, long: u64) {
 pub fn write_float(buf: &mut Vec<u8>, data: f32) {
     buf.extend_from_slice(&data.to_be_bytes());
 }
+pub fn write_double(buf: &mut Vec<u8>, data: f64) {
+    buf.extend_from_slice(&data.to_be_bytes());
+}
 
 pub fn read_prefixed_string(reader: &mut Reader) -> Option<String> {
     if reader.remaining() == 0 {
@@ -155,7 +160,24 @@ pub enum Object {
     Long(u64),
     Float(f32),
     String(String),
-
+    // Content
+    IntSequence(Vec<u32>),
+    Point2(Point2),
+    Point2Array(Vec<Point2>),
+    // TechNode
+    Boolean(bool),
+    Double(f64),
+    // Building
+    // LAccess
+    ByteArray(Vec<u8>),
+    BooleanArray(Vec<bool>),
+    // Unit
+    Vec2Array(Vec<Vec2>),
+    Vec2(Vec2),
+    // Team
+    // int[]
+    // Object[]
+    // UnitCommand
     Unknown,
 
     NotImplemented,
@@ -186,20 +208,20 @@ pub fn read_object(reader: &mut Reader) -> Object {
             for _ in 0..length {
                 values.push(reader.int());
             }
-            Object::NotImplemented
+            Object::IntSequence(values)
         }
         7 => {
-            reader.int();
-            reader.int();
-            Object::NotImplemented
+            let x = reader.int() as i16;
+            let y = reader.int() as i16;
+            Object::Point2(Point2 { x, y })
         }
         8 => {
-            let length = reader.short();
+            let length = reader.byte();
             let mut values = vec![];
             for _ in 0..length {
-                values.push(reader.int());
+                values.push(Point2::unpack(reader.int()));
             }
-            Object::NotImplemented
+            Object::Point2Array(values)
         }
         9 => {
             reader.byte();
@@ -207,12 +229,12 @@ pub fn read_object(reader: &mut Reader) -> Object {
             Object::NotImplemented
         }
         10 => {
-            reader.byte();
-            Object::NotImplemented
+            let value = reader.bool();
+            Object::Boolean(value)
         }
         11 => {
-            reader.double();
-            Object::NotImplemented
+            let value = reader.double();
+            Object::Double(value)
         }
         12 => {
             reader.int();
@@ -228,19 +250,19 @@ pub fn read_object(reader: &mut Reader) -> Object {
             for _ in 0..length {
                 values.push(reader.byte());
             }
-            Object::NotImplemented
+            Object::ByteArray(values)
         }
-        15 => {
-            reader.byte();
-            Object::NotImplemented
-        }
+        //15 => {
+        //    reader.byte();
+        //    Object::NotImplemented
+        //}
         16 => {
             let length = reader.short();
             let mut values = vec![];
             for _ in 0..length {
-                values.push(reader.byte());
+                values.push(reader.bool());
             }
-            Object::NotImplemented
+            Object::BooleanArray(values)
         }
         17 => {
             reader.int();
@@ -248,16 +270,18 @@ pub fn read_object(reader: &mut Reader) -> Object {
         }
         18 => {
             let length = reader.short();
+            let mut values = vec![];
             for _ in 0..length {
-                reader.float();
-                reader.float();
+                let x = reader.float();
+                let y = reader.float();
+                values.push(Vec2 { x, y });
             }
-            Object::NotImplemented
+            Object::Vec2Array(values)
         }
         19 => {
-            reader.float();
-            reader.float();
-            Object::NotImplemented
+            let x = reader.float();
+            let y = reader.float();
+            Object::Vec2(Vec2 { x, y })
         }
         20 => {
             reader.byte();
@@ -309,6 +333,69 @@ pub fn write_object(buf: &mut Vec<u8>, object: Object) {
             write_byte(buf, 4u8);
             write_string(buf, &value);
         }
+        // Content
+        Object::IntSequence(values) => {
+            write_byte(buf, 6u8);
+            write_short(buf, values.len() as i16);
+            for value in values {
+                write_int(buf, value);
+            }
+        }
+        Object::Point2(value) => {
+            write_byte(buf, 7u8);
+            write_int(buf, value.x as u32);
+            write_int(buf, value.y as u32);
+        }
+        Object::Point2Array(values) => {
+            write_byte(buf, 8u8);
+            write_byte(buf, values.len() as u8);
+            for value in values {
+                write_int(buf, value.pack() as u32);
+            }
+        }
+        // TechNode
+        Object::Boolean(value) => {
+            write_byte(buf, 10u8);
+            write_bool(buf, value);
+        }
+        Object::Double(value) => {
+            write_byte(buf, 11u8);
+            write_double(buf, value);
+        }
+        // BuildingBox
+        // LAccess
+        Object::ByteArray(values) => {
+            write_byte(buf, 14u8);
+            write_int(buf, values.len() as u32);
+            for value in values {
+                write_byte(buf, value);
+            }
+        }
+        Object::BooleanArray(values) => {
+            write_byte(buf, 16u8);
+            write_int(buf, values.len() as u32);
+            for value in values {
+                write_bool(buf, value);
+            }
+        }
+        // Unit
+        Object::Vec2Array(values) => {
+            write_byte(buf, 18u8);
+            write_short(buf, values.len() as i16);
+            for value in values {
+                write_float(buf, value.x);
+                write_float(buf, value.y);
+            }
+        }
+        Object::Vec2(value) => {
+            write_byte(buf, 19u8);
+            write_float(buf, value.x);
+            write_float(buf, value.y);
+        }
+        // Team
+        // int[]
+        // Object[]
+        // UnitCommand
         Object::NotImplemented => {}
         Object::Unknown => {}
     }
@@ -392,8 +479,8 @@ pub fn write_unit(buf: &mut Vec<u8>, unit: Unit) {
 
 #[derive(Debug, Clone)]
 pub struct Items {
-    id: i16,
-    count: u32,
+    pub id: i16,
+    pub count: u32,
 }
 
 pub fn read_items(reader: &mut Reader) -> Items {
@@ -416,8 +503,8 @@ pub fn read_vec2(reader: &mut Reader) -> Vec2 {
 
 #[derive(Debug, Clone)]
 pub struct Vec2Nullable {
-    x: f32,
-    y: f32,
+    pub x: f32,
+    pub y: f32,
 }
 
 pub fn read_vec2_nullable(reader: &mut Reader) -> Vec2 {

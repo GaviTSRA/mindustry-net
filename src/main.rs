@@ -1,33 +1,23 @@
-use mindustry_net::client::Client;
-use mindustry_net::packet::Packet;
+use tokio::sync::mpsc;
+
+use mindustry_net::client::{Client, ClientEvent};
 
 #[tokio::main]
 async fn main() {
-    // let mut client =
-    // Client::new("130.162.212.232:6507".parse().unwrap(), "Swarm".to_string()).await;
+    let (sender, mut receiver) = mpsc::channel(1024);
+
     let mut client = Client::new("127.0.0.1:6567".parse().unwrap(), "Swarm".to_string()).await;
     let state = client.state.clone();
 
-    loop {
-        let packet = client.handle_packets().await.unwrap();
-        match packet {
-            Packet::SendMessageCall2 { message, .. } => println!("MGS: {message}"),
-            Packet::WorldStream {
-                wave,
-                wave_time,
-                tick,
-                seed0,
-                seed1,
-                id,
-                ..
-            } => {
-                println!("World loaded:");
-                println!("Player Id: {id}");
-                println!("Wave: {wave} {wave_time}");
-                println!("Tick: {tick}");
-                println!("Seed: {seed0} / {seed1}");
+    tokio::spawn(async move {
+        loop {
+            let event = receiver.recv().await.unwrap();
+            match event {
+                ClientEvent::MapLoaded => println!("> Map loaded!"),
+                _ => {}
             }
-            _ => {}
         }
-    }
+    });
+
+    client.handle_packets(sender).await;
 }

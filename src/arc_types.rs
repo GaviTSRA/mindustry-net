@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Point2 {
     pub x: i16,
     pub y: i16,
@@ -10,7 +10,7 @@ impl Point2 {
         Point2 { x, y }
     }
 
-    pub fn pack(x: i16, y: i16) -> i32 {
-        (((x as u32) << 16) | (y as u32 & 0xFFFF)) as i32
+    pub fn pack(&self) -> i32 {
+        (((self.x as u32) << 16) | (self.y as u32 & 0xFFFF)) as i32
     }
 }
