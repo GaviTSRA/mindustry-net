@@ -1,5 +1,5 @@
 use crate::block_io::{Block, read_block};
-use crate::type_io::{Reader, read_string};
+use crate::type_io::{Object, Reader, read_object, read_string};
 use colored::{Color, Colorize};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -297,4 +297,48 @@ pub fn read_map(mut reader: &mut Reader, content_map: &HashMap<String, Vec<Strin
 
     // map.visualize();
     map
+}
+
+#[derive(Debug)]
+pub struct TeamPlan {
+    pub x: i16,
+    pub y: i16,
+    pub rotation: i16,
+    pub block_id: i16,
+    pub config: Object,
+}
+
+pub fn read_team_blocks(reader: &mut Reader) -> HashMap<u32, Vec<TeamPlan>> {
+    let team_count = reader.int();
+    let mut plans = HashMap::new();
+
+    for _ in 0..team_count {
+        let team = reader.int();
+        let mut team_plans = vec![];
+
+        let block_count = reader.int();
+        for _ in 0..block_count {
+            let x = reader.short();
+            let y = reader.short();
+            let rotation = reader.short();
+            let block_id = reader.short();
+            let config = read_object(reader);
+            team_plans.push(TeamPlan {
+                x,
+                y,
+                rotation,
+                block_id,
+                config,
+            });
+        }
+
+        plans.insert(team, team_plans);
+    }
+
+    plans
+}
+
+pub fn read_markers(reader: &mut Reader) {
+    let _type = reader.byte();
+    println!("Type: {}", _type);
 }

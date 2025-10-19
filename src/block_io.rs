@@ -32,6 +32,46 @@ fn load_block_params() -> HashMap<String, BlockParam> {
     serde_json::from_str(data).unwrap()
 }
 
+#[derive(Clone, Debug)]
+pub struct ConveyorItem {
+    pub item_id: u32,
+    pub x: u32,
+    pub y: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct DirectionalItemBuffer {
+    indexes: Vec<u8>,
+    values: Vec<Vec<u64>>,
+    capacity: u8,
+}
+impl DirectionalItemBuffer {
+    pub fn read(reader: &mut Reader, capacity: u8) -> DirectionalItemBuffer {
+        let mut indexes = vec![];
+        let mut values = vec![];
+
+        for _ in 0..4 {
+            let mut sub_values = vec![];
+            indexes.push(reader.byte());
+            let length = reader.byte();
+
+            for j in 0..length {
+                let value = reader.long();
+                if j < capacity {
+                    sub_values.push(value);
+                }
+            }
+            values.push(sub_values);
+        }
+
+        DirectionalItemBuffer {
+            indexes,
+            values,
+            capacity,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum MassDriverState {
@@ -79,22 +119,46 @@ pub enum SpecificBlockData {
         smooth_radius: f32,
         broken: bool,
     },
-    // TODO Conveyor
-    // TODO StackConveyor
-    // TODO Junction
+    Conveyor {
+        items: Vec<ConveyorItem>,
+    },
+    StackConveyor {
+        link: u32,
+        cooldown: f32,
+    },
+    Junction {
+        buffer: DirectionalItemBuffer,
+    },
     // TODO Bridges (split up?)
-    // TODO Sorter
-    // TODO OverflowGate
+    Sorter {
+        sort_item: i16,
+        buffer: Option<DirectionalItemBuffer>,
+    },
+    OverflowGate {
+        buffer: Option<DirectionalItemBuffer>,
+    },
     MassDriver {
         link: u32,
         rotation: f32,
         state: MassDriverState,
     },
-    // TODO Duct
-    // TODO DuctRouter
-    // TODO DirectionalUnloader
-    // TODO UnitCargoLoader
-    // TODO UnitCargoUnloadPoint
+    Duct {
+        received_direction: Option<u8>,
+    },
+    DuctRouter {
+        sort_item: Option<i16>,
+    },
+    DirectionalUnloader {
+        item_id: i16,
+        offset: i16,
+    },
+    UnitCargoLoader {
+        unit_id: u32,
+    },
+    UnitCargoUnloadPoint {
+        item_id: i16,
+        stale: bool,
+    },
     // TODO reactors (split up?)
     HeaterGenerator {
         heat: f32,
@@ -104,10 +168,17 @@ pub enum SpecificBlockData {
         item_id: i16,
     },
     // TODO ItemTurret
-    // TODO TractorBeamTurret
-    // TODO PointDefenseTurret
-    // TODO ContinuousTurret
-    // TODO ContinuousLiquidTurret
+    TractorBeamTurret {
+        rotation: f32,
+    },
+    PointDefenseTurret {
+        rotation: f32,
+    },
+    ContinuousTurret {
+        reload_counter: Option<f32>,
+        rotation: Option<f32>,
+        last_length: Option<f32>,
+    },
     RepairTurret {
         rotation: f32,
     },
@@ -206,100 +277,76 @@ fn read_specific_block_data(
         //}
         //return result
     } else if block_type == "Door" || block_type == "AutoDoor" {
-        let open = reader.bool();
-        return Some(SpecificBlockData::Door { open });
+        return Some(SpecificBlockData::Door {
+            open: reader.bool(),
+        });
     } else if block_type == "ShieldWall" {
-        let shield = reader.float();
-        return Some(SpecificBlockData::ShieldWall { shield });
+        return Some(SpecificBlockData::ShieldWall {
+            shield: reader.float(),
+        });
     } else if block_type == "MendProjector" {
-        let heat = reader.float();
-        let phase_heat = reader.float();
-        return Some(SpecificBlockData::MendProjector { heat, phase_heat });
+        return Some(SpecificBlockData::MendProjector {
+            heat: reader.float(),
+            phase_heat: reader.float(),
+        });
     } else if block_type == "OverdriveProjector" {
-        let heat = reader.float();
-        let phase_heat = reader.float();
-        return Some(SpecificBlockData::OverdriveProjector { heat, phase_heat });
+        return Some(SpecificBlockData::OverdriveProjector {
+            heat: reader.float(),
+            phase_heat: reader.float(),
+        });
     } else if block_type == "ForceProjector" {
-        let broken = reader.bool();
-        let buildup = reader.float();
-        let radius_scale = reader.float();
-        let warmup = reader.float();
-        let phase_heat = reader.float();
         return Some(SpecificBlockData::ForceProjector {
-            broken,
-            buildup,
-            radius_scale,
-            warmup,
-            phase_heat,
+            broken: reader.bool(),
+            buildup: reader.float(),
+            radius_scale: reader.float(),
+            warmup: reader.float(),
+            phase_heat: reader.float(),
         });
     } else if block_type == "Radar" {
-        let progress = reader.float();
-        return Some(SpecificBlockData::Radar { progress });
+        return Some(SpecificBlockData::Radar {
+            progress: reader.float(),
+        });
     } else if block_type == "BuildTurret" {
-        let rotation = reader.float();
-        let plans = read_plans(reader);
-        return Some(SpecificBlockData::BuildTurret { rotation, plans });
+        return Some(SpecificBlockData::BuildTurret {
+            rotation: reader.float(),
+            plans: read_plans(reader),
+        });
     } else if block_type == "BaseShield" {
-        let smooth_radius = reader.float();
-        let broken = reader.bool();
         return Some(SpecificBlockData::BaseShield {
-            smooth_radius,
-            broken,
+            smooth_radius: reader.float(),
+            broken: reader.bool(),
         });
     } else if block_type == "Conveyor" || block_type == "ArmoredConveyor" {
         let amount = reader.int();
-        //let map = []
-        for i in 0..amount {
-            let id;
+        let mut items = vec![];
+
+        for _ in 0..amount {
+            let item_id;
             let x;
             let y;
             if version == 0 {
                 let val = reader.int();
-                id = (val >> 24) & 0xff;
+                item_id = (val >> 24) & 0xff;
                 x = ((val >> 16) & 0xff) / 127;
                 y = (((val >> 8) & 0xff) + 128) / 255;
             } else {
-                let id = reader.short();
+                item_id = reader.short() as u32;
                 x = (reader.byte() / 127) as u32;
                 y = ((reader.byte() + 128) / 255) as u32
             }
-            //let res = {
-            //  id,
-            //  x,
-            //  y
-            //}
-            //map[i] = res
+            items.push(ConveyorItem { item_id, x, y })
         }
-        //let result = {
-        //  map
-        //}
-        //return result
+
+        return Some(SpecificBlockData::Conveyor { items });
     } else if block_type == "StackConveyor" {
-        let link = reader.int();
-        let cooldown = reader.float();
-        //let result = {
-        //  link,
-        //  cooldown
-        //}
-        //return result
+        return Some(SpecificBlockData::StackConveyor {
+            link: reader.int(),
+            cooldown: reader.float(),
+        });
     } else if block_type == "Junction" {
-        //let buffers = []
-        //let indexes = []
-        for i in 0..4 {
-            //buffers[i] = []
-            /*indexes[i] =*/
-            reader.byte();
-            let length = reader.byte();
-            for j in 0..length {
-                let value = reader.long();
-                //buffers[i][j] = value
-            }
-        }
-        //let result = {
-        //  buffers,
-        //  indexes
-        //}
-        //return result
+        return Some(SpecificBlockData::Junction {
+            buffer: DirectionalItemBuffer::read(reader, 6),
+        });
     } else if block_type == "BufferedItemBridge"
         || block_type == "ItemBridge"
         || block_type == "LiquidBridge"
@@ -337,94 +384,57 @@ fn read_specific_block_data(
         //}
         //return result
     } else if block_type == "Sorter" {
-        let sortitem = reader.short();
-        //let buffers = []
-        //let indexes = []
-        if version == 1 {
-            for i in 0..4 {
-                //buffers[i] = []
-                //indexes[i] = reader.byte();
-                let length = reader.byte();
-                for j in 0..length {
-                    let value = reader.long();
-                    //buffers[i][j] = value
-                }
-            }
-        }
-        //let result = {
-        //  sortitem,
-        //  buffers
-        //}
-        //return result
+        let sort_item = reader.short();
+        let buffer = if version == 1 {
+            Some(DirectionalItemBuffer::read(reader, 20))
+        } else {
+            None
+        };
+        return Some(SpecificBlockData::Sorter { sort_item, buffer });
     } else if block_type == "OverflowGate" {
-        //let buffers = []
-        //let indexes = []
-        if version == 1 {
-            for i in 0..4 {
-                //buffers[i] = []
-                //indexes[i] = reader.byte();
-                let length = reader.byte();
-                for j in 0..length {
-                    let value = reader.long();
-                    //buffers[i][j] = value
-                }
-            }
-        } else if version == 3 {
-            reader.bytes(4);
+        let buffer = if version == 1 {
+            Some(DirectionalItemBuffer::read(reader, 25))
+        } else {
+            None
+        };
+        if version == 3 {
+            reader.int();
         }
-        //let result = {
-        //  buffers
-        //}
-        //return result
+        return Some(SpecificBlockData::OverflowGate { buffer });
     } else if block_type == "MassDriver" {
-        let link = reader.int();
-        let rotation = reader.float();
-        let state = reader.byte();
         return Some(SpecificBlockData::MassDriver {
-            link,
-            rotation,
-            state: MassDriverState::try_from(state).unwrap(),
+            link: reader.int(),
+            rotation: reader.float(),
+            state: MassDriverState::try_from(reader.byte()).unwrap(),
         });
     } else if block_type == "Duct" {
-        let recDir;
-        if version >= 1 {
-            recDir = reader.byte();
-        }
-        //let result = {
-        //  recDir
-        //}
-        //return result
+        let received_direction = if version >= 1 {
+            Some(reader.byte())
+        } else {
+            None
+        };
+        return Some(SpecificBlockData::Duct { received_direction });
     } else if block_type == "DuctRouter" {
-        let sitem;
-        if version >= 1 {
-            sitem = reader.short();
-        }
-        //let result = {
-        //  sitem
-        //}
-        //return result
+        let sort_item = if version >= 1 {
+            Some(reader.short())
+        } else {
+            None
+        };
+        return Some(SpecificBlockData::DuctRouter { sort_item });
     } else if block_type == "DirectionalUnloader" {
-        let id = reader.short();
-        let off = reader.short();
-        //let result = {
-        //  id,
-        //  off
-        //}
-        //return result
+        return Some(SpecificBlockData::DirectionalUnloader {
+            item_id: reader.short(),
+            offset: reader.short(),
+        });
     } else if block_type == "UnitCargoLoader" {
-        let unitid = reader.int();
-        //let result = {
-        //  unitid
-        //}
-        //return result
+        return Some(SpecificBlockData::UnitCargoLoader {
+            unit_id: reader.int(),
+        });
     } else if block_type == "UnitCargoUnloadPoint" {
-        let item = reader.short();
-        let stale = reader.byte();
-        //let result = {
-        //  item,
-        //  stale
-        //}
-        //return result
+        return Some(SpecificBlockData::UnitCargoUnloadPoint {
+            item_id: reader.short(),
+            stale: reader.bool(),
+        });
     } else if block_type == "NuclearReactor"
         || block_type == "ImpactReactor"
         || block_type == "VariableReactor"
@@ -455,8 +465,9 @@ fn read_specific_block_data(
         //}
         //return result
     } else if block_type == "HeaterGenerator" {
-        let heat = reader.float();
-        return Some(SpecificBlockData::HeaterGenerator { heat });
+        return Some(SpecificBlockData::HeaterGenerator {
+            heat: reader.float(),
+        });
     } else if block_type == "Drill" || block_type == "BeamDrill" || block_type == "BurstDrill" {
         let progress;
         let warmup;
@@ -498,30 +509,39 @@ fn read_specific_block_data(
         //  ammo
         //}
         //return result
-    } else if block_type == "TractorBeamTurret" || block_type == "PointDefenseTurret" {
-        let rotation = reader.float();
-        //let result = {
-        //  rotation
-        //}
-        //return result
+    } else if block_type == "TractorBeamTurret" {
+        return Some(SpecificBlockData::TractorBeamTurret {
+            rotation: reader.float(),
+        });
+    } else if block_type == "PointDefenseTurret" {
+        return Some(SpecificBlockData::PointDefenseTurret {
+            rotation: reader.float(),
+        });
     } else if block_type == "ContinuousTurret" || block_type == "ContinuousLiquidTurret" {
-        let reloadc;
-        let rotation;
-        if version >= 1 {
-            reloadc = reader.float();
-            rotation = reader.float();
-        }
-        let ll;
-        if version >= 3 {
-            ll = reader.float();
-        }
-        //let result = {
-        //  ll
-        //}
-        //return result
+        let reload_counter = if version >= 1 {
+            Some(reader.float())
+        } else {
+            None
+        };
+        let rotation = if version >= 1 {
+            Some(reader.float())
+        } else {
+            None
+        };
+        let last_length = if version >= 3 {
+            Some(reader.float())
+        } else {
+            None
+        };
+        return Some(SpecificBlockData::ContinuousTurret {
+            reload_counter,
+            rotation,
+            last_length,
+        });
     } else if block_type == "RepairTurret" {
-        let rotation = reader.float();
-        return Some(SpecificBlockData::RepairTurret { rotation });
+        return Some(SpecificBlockData::RepairTurret {
+            rotation: reader.float(),
+        });
     } else if block_type == "UnitFactory" || block_type == "Reconstructor" {
         let px = reader.float();
         let py = reader.float();
@@ -684,11 +704,13 @@ fn read_specific_block_data(
         //}
         //return result
     } else if block_type == "ItemSource" {
-        let item_id = reader.short();
-        return Some(SpecificBlockData::ItemSource { item_id });
+        return Some(SpecificBlockData::ItemSource {
+            item_id: reader.short(),
+        });
     } else if block_type == "LiquidSource" {
-        let liquid_id = reader.short();
-        return Some(SpecificBlockData::LiquidSource { liquid_id });
+        return Some(SpecificBlockData::LiquidSource {
+            liquid_id: reader.short(),
+        });
     } else if block_type == "PayloadSource" {
         let px = reader.float();
         let py = reader.float();
@@ -706,8 +728,9 @@ fn read_specific_block_data(
         //}
         //return result
     } else if block_type == "LightBlock" {
-        let color = reader.int();
-        return Some(SpecificBlockData::LightBlock { color });
+        return Some(SpecificBlockData::LightBlock {
+            color: reader.int(),
+        });
     } else if block_type == "LaunchPad" {
         let lc = reader.float();
         //let result = {
@@ -715,14 +738,17 @@ fn read_specific_block_data(
         //}
         //return result
     } else if block_type == "Accelerator" {
-        let progress = reader.float();
-        return Some(SpecificBlockData::Accelerator { progress });
+        return Some(SpecificBlockData::Accelerator {
+            progress: reader.float(),
+        });
     } else if block_type == "MessageBlock" {
-        let message = read_string(reader);
-        return Some(SpecificBlockData::Message { message });
+        return Some(SpecificBlockData::Message {
+            message: read_string(reader),
+        });
     } else if block_type == "SwitchBlock" {
-        let enabled = reader.bool();
-        return Some(SpecificBlockData::Switch { enabled });
+        return Some(SpecificBlockData::Switch {
+            enabled: reader.bool(),
+        });
     } else if block_type == "ConsumeGenerator"
         || block_type == "ThermalGenerator"
         || block_type == "SolarGenerator"
@@ -742,29 +768,23 @@ fn read_specific_block_data(
         //return result
     } else if block_type == "LiquidTurret" {
         if version >= 1 {
-            let reload_counter = reader.float();
-            let rotation = reader.float();
             return Some(SpecificBlockData::LiquidTurret {
-                reload_counter,
-                rotation,
+                reload_counter: reader.float(),
+                rotation: reader.float(),
             });
         }
     } else if block_type == "PowerTurret" {
         if version >= 1 {
-            let reload_counter = reader.float();
-            let rotation = reader.float();
             return Some(SpecificBlockData::PowerTurret {
-                reload_counter,
-                rotation,
+                reload_counter: reader.float(),
+                rotation: reader.float(),
             });
         }
     } else if block_type == "LaserTurret" {
         if version >= 1 {
-            let reload_counter = reader.float();
-            let rotation = reader.float();
             return Some(SpecificBlockData::LaserTurret {
-                reload_counter,
-                rotation,
+                reload_counter: reader.float(),
+                rotation: reader.float(),
             });
         }
     } else if block_type == "UnitAssemblerModule" {
@@ -868,7 +888,6 @@ fn read_specific_block_data(
     } else if block_type == "CanvasBlock" {
         let length = reader.int();
         let bytes = reader.bytes(length as usize);
-
         return Some(SpecificBlockData::Canvas { data: bytes });
     } else if block_type.starts_with("Build") {
         let progress = reader.float();

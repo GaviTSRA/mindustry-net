@@ -1,8 +1,8 @@
-use crate::save_io::{Map, read_content_header, read_map};
+use crate::save_io::{Map, read_content_header, read_map, read_markers, read_team_blocks};
 use crate::type_io::{
     KickReason, Object, Reader, Tile, Unit, read_kick, read_object, read_prefixed_string,
     read_string, read_string_map, read_tile, read_unit, write_byte, write_float, write_int,
-    write_string, write_unit, write_unsigned_short,
+    write_string, write_unsigned_short,
 };
 use crate::unit_io::{FullUnit, Plan, read_full_unit, write_plans};
 use base64::Engine;
@@ -42,18 +42,18 @@ pub enum FrameworkPacket {
 
 #[derive(Debug)]
 pub enum Packet {
-    // [00] Stream begin
+    // [000] Stream begin
     StreamBegin {
         id: u32,
         total: u32,
         stream_type: u8,
     },
-    // [01] Stream Chunk
+    // [001] Stream Chunk
     StreamChunk {
         id: u32,
         data: Vec<u8>,
     },
-    // [02] Completed world stream
+    // [002] Completed world stream
     WorldStream {
         // TODO
         /* rules */ /* map */ wave: u32,
@@ -65,7 +65,7 @@ pub enum Packet {
         content_map: HashMap<String, Vec<String>>, /* more */
         map: Map,
     },
-    // [03] Connect to server
+    // [003] Connect to server
     Connect {
         version: u32,
         client: String,
@@ -77,8 +77,20 @@ pub enum Packet {
         color: Vec<u8>,
         mods: Vec<String>,
     },
-    // [10] Begin block place
-    BeginPlaceCall {
+    // [004] Admin Request
+    // [005] Announce
+    // [006] Assembler Drone Spawned
+    // [007] Assembler Unit Spawned
+    // [008] Auto Door Toggle
+    // [009] Begin Break
+    BeginBreak {
+        unit: Unit,
+        team: u8,
+        x: u32,
+        y: u32,
+    },
+    // [010] Begin Place
+    BeginPlace {
         unit: Unit,
         result: u16,
         team: u8,
@@ -86,12 +98,18 @@ pub enum Packet {
         y: u32,
         rotation: u32,
     },
-    // [11] Block Snapshot
+    // [011] Block Snapshot
     BlockSnapshot {
         amount: i16,
         data: Vec<u8>,
     },
-    // [18] Client Snapshot
+    // [012] Build Destroyed
+    // [013] Build Health Update
+    // [014] Building Control Select
+    // [015] Clear Items
+    // [016] Client Packet Reliable
+    // [017] Client Packet Unreliable
+    // [018] Client Snapshot
     ClientSnapshot {
         snapshot_id: u32,
         unit_id: u32,
@@ -116,9 +134,12 @@ pub enum Packet {
         view_width: f32,
         view_height: f32,
     },
-    // [22] Confirm connect call
+    // [019] Command Building
+    // [020] Command Units
+    // [021] Connect Call
+    // [022] Connect Call Confirm
     ConnectCallConfirm,
-    // [23] Construct Finish call
+    // [023] Construct Finish
     ContructFinishCall {
         tile: Tile,
         block: i16,
@@ -127,43 +148,104 @@ pub enum Packet {
         team: u8,
         config: Object,
     },
-    // [34] Entity snapshot call
+    // [024]
+    // [025]
+    // [026]
+    // [027]
+    // [028]
+    // [029]
+    // [030]
+    // [031]
+    // [032]
+    // [033]
+    // [034] Entity Snapshot
     EntitySnapshot {
         units: HashMap<u32, FullUnit>,
     },
-    // [44] Kick with a custom message
+    // [035]
+    // [036]
+    // [037]
+    // [038]
+    // [039]
+    // [040]
+    // [041]
+    // [042]
+    // [043]
+    // [044] Kick with a custom message
     KickCall {
         reason: String,
     },
-    // [45] Kick with a preset message
+    // [045] Kick with a preset message
     KickCall2 {
         reason: KickReason,
     },
-    // [59] Spawn call
+    // [046]
+    // [047]
+    // [048]
+    // [049]
+    // [050]
+    // [051]
+    // [052]
+    // [053]
+    // [054]
+    // [055]
+    // [056]
+    // [057]
+    // [058]
+    // [059] Spawn call
     SpawnCall {
         tile_x: i16,
         tile_y: i16,
         entity: u32,
     },
-    // [69] Rotate Block Call
+    // [060]
+    // [061]
+    // [062]
+    // [063]
+    // [064]
+    // [065]
+    // [066]
+    // [067]
+    // [068]
+    // [069] Rotate Block Call
     RotateBlockCall {
         entity: u32,
         tile: Tile,
         rotation: u8,
     },
-    // [71] Send a chat message to server
+    // [070]
+    // [071] Send a chat message to server
     SendChatMessageCall {
         message: String,
     },
-    // [73] Received a chat message from server
+    // [072]
+    // [073] Received a chat message from server
     SendMessageCall2 {
         message: String,
         unformatted: Option<String>,
         sender: u32,
     },
-    // [86] Set position call
+    // [074]
+    // [075]
+    // [076]
+    // [077]
+    // [078]
+    // [079]
+    // [080]
+    // [081]
+    // [082]
+    // [083]
+    // [084]
+    // [085]
+    // [086] Set position call
     // SetPositionCall { x: f32, y: f32 },
-    // [94] StateSnapshot
+    // [088]
+    // [089]
+    // [090]
+    // [091]
+    // [092]
+    // [093]
+    // [094] StateSnapshot
     StateSnapshot {
         wave_time: f32,
         wave: u32,
@@ -176,12 +258,35 @@ pub enum Packet {
         rand1: u64,
         core_data: Vec<u8>,
     },
-    // [99] TileConfigCall
+    // [095]
+    // [096]
+    // [097]
+    // [098]
+    // [099] TileConfigCall
     TileConfigCall {
         player: u32,
         tile: Tile,
         value: Object,
     },
+    // [100]
+    // [101]
+    // [102]
+    // [103]
+    // [104]
+    // [105]
+    // [106]
+    // [107]
+    // [108]
+    // [109]
+    // [110]
+    // [111]
+    // [112]
+    // [113]
+    // [114]
+    // [115]
+    // [116]
+    // [117]
+    // [118]
     Other(u8),
 }
 
@@ -284,7 +389,7 @@ pub fn parse_regular_packet(
 ) -> Result<Packet, PacketError> {
     // println!("{id}");
 
-    match id {
+    let result = match id {
         0 => {
             let id = reader.int();
             let total = reader.int();
@@ -346,6 +451,15 @@ pub fn parse_regular_packet(
             fs::write(&default_content_map_path, default_content_map_data).unwrap();
 
             let map = read_map(&mut reader, &content_map);
+            let team_blocks = read_team_blocks(&mut reader);
+            println!("{team_blocks:?}");
+
+            println!("{:?}", reader.read_remaining());
+
+            // let markers = read_markers(&mut reader);
+            // println!("{markers:?}");
+            // let custom_chunks = read_custom_chunks(&mut reader);
+            // println!("{custom_chunks:?}");
 
             println!("Remaining data: {}", reader.remaining()); // TODO
 
@@ -360,6 +474,20 @@ pub fn parse_regular_packet(
                 map,
             })
         }
+        9 => Ok(Packet::BeginBreak {
+            unit: read_unit(&mut reader),
+            team: reader.byte(),
+            x: reader.int(),
+            y: reader.int(),
+        }),
+        10 => Ok(Packet::BeginPlace {
+            unit: read_unit(&mut reader),
+            result: reader.unsigned_short(),
+            team: reader.byte(),
+            x: reader.int(),
+            y: reader.int(),
+            rotation: reader.int(),
+        }),
         11 => {
             let amount = reader.short();
             let data_length = reader.short();
@@ -478,7 +606,16 @@ pub fn parse_regular_packet(
             })
         }
         id => Ok(Packet::Other(id)),
+    };
+
+    if reader.remaining() != 0 {
+        eprintln!(
+            "Did not read complete packet: ID {id}, {} bytes remain",
+            reader.remaining()
+        );
     }
+
+    result
 }
 
 pub fn write_framework_packet(packet: FrameworkPacket) -> Vec<u8> {
@@ -543,23 +680,6 @@ pub fn write_packet(packet: Packet) -> Vec<u8> {
             }
 
             3
-        }
-        Packet::BeginPlaceCall {
-            unit,
-            result,
-            team,
-            x,
-            y,
-            rotation,
-        } => {
-            write_unit(&mut data, unit);
-            write_unsigned_short(&mut data, result);
-            write_byte(&mut data, team);
-            write_int(&mut data, x);
-            write_int(&mut data, y);
-            write_int(&mut data, rotation);
-
-            10
         }
         Packet::ClientSnapshot {
             snapshot_id,

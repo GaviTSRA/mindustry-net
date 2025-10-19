@@ -245,7 +245,7 @@ pub fn read_object(reader: &mut Reader) -> Object {
             Object::NotImplemented
         }
         14 => {
-            let length = reader.short();
+            let length = reader.int();
             let mut values = vec![];
             for _ in 0..length {
                 values.push(reader.byte());
@@ -307,7 +307,10 @@ pub fn read_object(reader: &mut Reader) -> Object {
             reader.byte();
             Object::NotImplemented
         }
-        _ => Object::Unknown,
+        other => {
+            eprintln!("Unknown object: {other}");
+            Object::Unknown
+        }
     }
 }
 
