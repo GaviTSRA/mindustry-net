@@ -4,6 +4,6 @@ pub mod type_io;
 pub mod unit_io;
 
 mod arc_types;
-mod block_io;
+pub mod block_io;
 pub mod client;
-mod save_io;
+pub mod save_io;

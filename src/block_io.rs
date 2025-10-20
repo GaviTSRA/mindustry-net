@@ -883,7 +883,7 @@ fn read_specific_block_data(
 
         if version >= 3 {
             let tag = read_prefixed_string(reader);
-            let iconTag = reader.short();
+            let iconTag = reader.unsigned_short();
         }
     } else if block_type == "CanvasBlock" {
         let length = reader.int();
@@ -919,6 +919,11 @@ fn read_specific_block_data(
         //  itemsLeft
         //}
         //return result
+    } else if block_type == "CoreBlock" {
+        // TODO
+        if version >= 1 {
+            read_vec2_nullable(reader);
+        }
     } else {
         return None;
     }
@@ -1103,6 +1108,8 @@ fn read_block_power(reader: &mut Reader) -> BlockPowerData {
 
 #[derive(Debug, Clone)]
 pub struct Block {
+    pub name: String,
+    pub block_type: String,
     pub base: BaseBlockData,
     pub specific: Option<SpecificBlockData>,
 }
@@ -1115,6 +1122,6 @@ pub fn read_block(
     content_map: &HashMap<String, Vec<String>>,
 ) -> Block {
     let base = read_base_block_data(reader, id.clone());
-    let specific = read_specific_block_data(reader, id, block_type, version, content_map);
-    Block { base, specific }
+    let specific = read_specific_block_data(reader, id.clone(), block_type.clone(), version, content_map);
+    Block { name: id, block_type, base, specific }
 }

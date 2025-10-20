@@ -1,4 +1,4 @@
-use crate::block_io::read_block;
+use crate::block_io::{read_block, BaseBlockData, Block};
 use crate::packet::{
     AnyPacket, FrameworkPacket, Packet, read_packet_tcp, read_packet_udp, write_framework_packet,
     write_packet,
@@ -33,8 +33,8 @@ pub struct State {
     pub chatting: bool,
     pub plans: Vec<Plan>,
 
-    units: HashMap<u32, FullUnit>,
-    map: Map,
+    pub units: HashMap<u32, FullUnit>,
+    pub map: Map,
 }
 
 pub struct Client {
@@ -319,18 +319,80 @@ impl Client {
 
                 sender.send(ClientEvent::MapLoaded).await.unwrap();
             }
-            Packet::ContructFinishCall { tile, block, .. } => {
+            Packet::BeginPlace { x, y, rotation, result, team, .. } => {
+                let mut state = self.state.lock().await;
+                let map_tile = match state.map.get_mut(x, y) {
+                    Some(map_tile) => map_tile,
+                    None => {
+                        eprintln!("Recvd begin place before map was loaded, ignoring"); 
+                        return;
+                    }
+                };
+                map_tile.block_id = Some(result as i16);
+                // TODO improve
+                map_tile.block = Some(Block {
+                    block_type: "Construct".to_string(),
+                    name: "Construct".to_string(),
+                    base: BaseBlockData {
+                        team,
+                        rotation: rotation as u8,
+                        version: 0,
+                        legacy: false,
+                        items: None,
+                        liquids: None,
+                        power: None,
+                        on: None,
+                        module_bitmask: 0,
+                        health: 1f32,
+                    },
+                    specific: None
+                })
+            }
+            Packet::ConstructFinish { tile, block, .. } => {
                 let mut state = self.state.lock().await;
                 let map_tile = state.map.get_mut(tile.x as u32, tile.y as u32).unwrap();
                 map_tile.block_id = Some(block);
-                // TODO: Update config
+
+                let block_types = load_block_types();
+                let content_map = match self.content_map.read().await.clone() {
+                    Some(map ) => map,
+                    None => {
+                        // TODO
+                        return;
+                    }
+                };
+
+                let block_name = content_map
+                    .get("block")
+                    .unwrap()
+                    .get(block as usize)
+                    .unwrap();
+                let block_type = block_types.get(block_name).unwrap();
+
+                if let Some(block) = &mut map_tile.block {
+                    block.block_type = block_type.clone();
+                    block.name = block_name.clone();
+                    // TODO update config
+                } else {
+                    eprintln!("Construct block at {tile:?} missing!");
+                }
 
                 sender
                     .send(ClientEvent::BlockChanged { tile })
                     .await
                     .unwrap();
             }
+            Packet::DeconstructFinish { tile, .. } => {
+                let mut state = self.state.lock().await;
+                let map_tile = state.map.get_mut(tile.x as u32, tile.y as u32).unwrap();
+                map_tile.block_id = None;
+                map_tile.block = None;
+                sender.send(ClientEvent::BlockChanged { tile }).await.unwrap();
+            }
+            // TODO Broken
             Packet::BlockSnapshot { amount, data } => {
+                return;
+                
                 let mut reader = Reader::new(data);
                 let mut state = self.state.lock().await;
 
@@ -338,9 +400,15 @@ impl Client {
                     let tile = read_tile(&mut reader);
                     let block_id = reader.short();
 
-                    let map_tile = state.map.get_mut(tile.x as u32, tile.y as u32).unwrap();
+                    let map_tile = match state.map.get_mut(tile.x as u32, tile.y as u32){
+                        Some(map_tile) => map_tile,
+                        None => {
+                            eprintln!("Invalid state: Block snapshot contains locally missing block at {tile:?}");
+                            return;
+                        }
+                    };
                     if map_tile.block_id.unwrap() != block_id {
-                        panic!(
+                        eprintln!(
                             "Invalid block id at {tile:?}: Expected {block_id} but found {:?}",
                             map_tile.block_id
                         );

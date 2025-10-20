@@ -140,7 +140,7 @@ pub enum Packet {
     // [022] Connect Call Confirm
     ConnectCallConfirm,
     // [023] Construct Finish
-    ContructFinishCall {
+    ConstructFinish {
         tile: Tile,
         block: i16,
         builder: Unit,
@@ -152,7 +152,12 @@ pub enum Packet {
     // [025]
     // [026]
     // [027]
-    // [028]
+    // [028] Deconstruct Finish
+    DeconstructFinish {
+        tile: Tile,
+        block: i16,
+        builder: Unit,
+    },
     // [029]
     // [030]
     // [031]
@@ -492,7 +497,6 @@ pub fn parse_regular_packet(
             let amount = reader.short();
             let data_length = reader.short();
             let data = reader.bytes(data_length as usize);
-            println!("Did not read {}", reader.remaining());
             Ok(Packet::BlockSnapshot { amount, data })
         }
         23 => {
@@ -502,7 +506,7 @@ pub fn parse_regular_packet(
             let rotation = reader.byte();
             let team = reader.byte();
             let config = read_object(&mut reader);
-            Ok(Packet::ContructFinishCall {
+            Ok(Packet::ConstructFinish {
                 tile,
                 block,
                 builder,
@@ -510,6 +514,12 @@ pub fn parse_regular_packet(
                 team,
                 config,
             })
+        }
+        28 => {
+            let tile = read_tile(&mut reader);
+            let block = reader.short();
+            let builder = read_unit(&mut reader);
+            Ok(Packet::DeconstructFinish { tile, block , builder})
         }
         34 => {
             let mut units = HashMap::new();
@@ -523,7 +533,14 @@ pub fn parse_regular_packet(
             for _ in 0..amount {
                 let id = unit_reader.int();
                 let unit_type = unit_reader.byte();
-                let unit = read_full_unit(&mut unit_reader, unit_type, false, content_map);
+                let content = match content_map {
+                    Some(map) => map,
+                    None => {
+                        println!("Received unit data before map was loaded, ignoring");
+                        return Ok(Packet::Other(34));
+                    }
+                };
+                let unit = read_full_unit(&mut unit_reader, unit_type, false, content);
                 units.insert(id, unit);
             }
 

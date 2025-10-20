@@ -295,7 +295,8 @@ pub fn read_payload(
         );
         //return [id, block]
     } else {
-        let unit = read_unit(reader);
+        let unit_id = reader.byte();
+        let unit = read_full_unit(reader, unit_id, true, content_map);
         //return unit
     }
 
@@ -404,7 +405,7 @@ pub fn read_full_unit(
     reader: &mut Reader,
     type_id: u8,
     has_revision: bool,
-    content_map: &Option<HashMap<String, Vec<String>>>,
+    content_map: &HashMap<String, Vec<String>>,
 ) -> FullUnit {
     let mut revision = None;
     if has_revision {
@@ -456,9 +457,7 @@ pub fn read_full_unit(
         if unit_type == &"PayloadUnit" || unit_type == &"BuildingTetherPayloadUnit" {
             payloads = Some(read_payloads(
                 reader,
-                &content_map.clone().expect(
-                    "Received unit data before content map was set and no default map is present",
-                ),
+                &content_map.clone()
             ));
         }
 

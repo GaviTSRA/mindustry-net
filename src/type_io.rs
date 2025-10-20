@@ -159,7 +159,7 @@ pub enum Object {
     Int(u32),
     Long(u64),
     Float(f32),
-    String(String),
+    String(Option<String>),
     // Content
     IntSequence(Vec<u32>),
     Point2(Point2),
@@ -196,7 +196,7 @@ pub fn read_object(reader: &mut Reader) -> Object {
         1 => Object::Int(reader.int()),
         2 => Object::Long(reader.long()),
         3 => Object::Float(reader.float()),
-        4 => Object::String(read_prefixed_string(reader).unwrap()),
+        4 => Object::String(read_prefixed_string(reader)),
         5 => {
             reader.byte();
             reader.short();
@@ -334,7 +334,7 @@ pub fn write_object(buf: &mut Vec<u8>, object: Object) {
         }
         Object::String(value) => {
             write_byte(buf, 4u8);
-            write_string(buf, &value);
+            write_string(buf, &*value.unwrap());
         }
         // Content
         Object::IntSequence(values) => {
