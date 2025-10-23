@@ -29,6 +29,7 @@ static UNIT_MAP: phf::Map<u8, &'static str> = phf_map! {
     19u8 => "MechUnit",
     20u8 => "UnitWaterMove",
     21u8 => "LegsUnit",
+    23u8 => "PayloadUnit",
     24u8 => "LegsUnit",
     26u8 => "PayloadUnit",
     28u8 => "",
@@ -373,7 +374,7 @@ pub enum FullUnit {
         color: u32,
         mouse_x: f32,
         mouse_y: f32,
-        name: String,
+        name: Option<String>,
         shooting: bool,
         team: u8,
         typing: bool,
@@ -383,12 +384,14 @@ pub enum FullUnit {
     },
     WeatherState {
         revision: Option<i16>,
-        effect: f32,
+        effect_timer: Option<f32>,
         intensity: f32,
         life: f32,
         opacity: f32,
         weather: i16,
-        wind: Vec2,
+        wind: Option<Vec2>,
+        x: f32,
+        y: f32,
     },
     WorldLabel {
         revision: Option<i16>,
@@ -455,10 +458,7 @@ pub fn read_full_unit(
 
         let mut payloads = None;
         if unit_type == &"PayloadUnit" || unit_type == &"BuildingTetherPayloadUnit" {
-            payloads = Some(read_payloads(
-                reader,
-                &content_map.clone()
-            ));
+            payloads = Some(read_payloads(reader, &content_map.clone()));
         }
 
         let plans = read_plans_queue(reader);
@@ -535,7 +535,7 @@ pub fn read_full_unit(
             color: reader.int(),
             mouse_x: reader.float(),
             mouse_y: reader.float(),
-            name: read_prefixed_string(reader).unwrap(),
+            name: read_prefixed_string(reader),
             shooting: reader.byte() != 0,
             team: reader.byte(),
             typing: reader.byte() != 0,
@@ -546,12 +546,14 @@ pub fn read_full_unit(
     } else if unit_type == &"WeatherState" {
         return FullUnit::WeatherState {
             revision,
-            effect: reader.float(),
+            effect_timer: Some(reader.float()),
             intensity: reader.float(),
             life: reader.float(),
             opacity: reader.float(),
             weather: reader.short(),
-            wind: read_vec2(reader),
+            wind: Some(read_vec2(reader)),
+            x: reader.float(),
+            y: reader.float(),
         };
     } else if unit_type == &"WorldLabel" {
         return FullUnit::WorldLabel {

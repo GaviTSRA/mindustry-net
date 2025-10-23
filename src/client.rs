@@ -1,4 +1,4 @@
-use crate::block_io::{read_block, BaseBlockData, Block};
+use crate::block_io::{BaseBlockData, Block, read_block};
 use crate::packet::{
     AnyPacket, FrameworkPacket, Packet, read_packet_tcp, read_packet_udp, write_framework_packet,
     write_packet,
@@ -48,6 +48,7 @@ pub struct Client {
 }
 
 // TODO improve included data
+#[derive(Debug)]
 pub enum ClientEvent {
     MapLoaded,
     BlockChanged {
@@ -319,12 +320,19 @@ impl Client {
 
                 sender.send(ClientEvent::MapLoaded).await.unwrap();
             }
-            Packet::BeginPlace { x, y, rotation, result, team, .. } => {
+            Packet::BeginPlace {
+                x,
+                y,
+                rotation,
+                result,
+                team,
+                ..
+            } => {
                 let mut state = self.state.lock().await;
                 let map_tile = match state.map.get_mut(x, y) {
                     Some(map_tile) => map_tile,
                     None => {
-                        eprintln!("Recvd begin place before map was loaded, ignoring"); 
+                        eprintln!("Recvd begin place before map was loaded, ignoring");
                         return;
                     }
                 };
@@ -345,7 +353,7 @@ impl Client {
                         module_bitmask: 0,
                         health: 1f32,
                     },
-                    specific: None
+                    specific: None,
                 })
             }
             Packet::ConstructFinish { tile, block, .. } => {
@@ -355,7 +363,7 @@ impl Client {
 
                 let block_types = load_block_types();
                 let content_map = match self.content_map.read().await.clone() {
-                    Some(map ) => map,
+                    Some(map) => map,
                     None => {
                         // TODO
                         return;
@@ -387,12 +395,15 @@ impl Client {
                 let map_tile = state.map.get_mut(tile.x as u32, tile.y as u32).unwrap();
                 map_tile.block_id = None;
                 map_tile.block = None;
-                sender.send(ClientEvent::BlockChanged { tile }).await.unwrap();
+                sender
+                    .send(ClientEvent::BlockChanged { tile })
+                    .await
+                    .unwrap();
             }
             // TODO Broken
             Packet::BlockSnapshot { amount, data } => {
                 return;
-                
+
                 let mut reader = Reader::new(data);
                 let mut state = self.state.lock().await;
 
@@ -400,10 +411,12 @@ impl Client {
                     let tile = read_tile(&mut reader);
                     let block_id = reader.short();
 
-                    let map_tile = match state.map.get_mut(tile.x as u32, tile.y as u32){
+                    let map_tile = match state.map.get_mut(tile.x as u32, tile.y as u32) {
                         Some(map_tile) => map_tile,
                         None => {
-                            eprintln!("Invalid state: Block snapshot contains locally missing block at {tile:?}");
+                            eprintln!(
+                                "Invalid state: Block snapshot contains locally missing block at {tile:?}"
+                            );
                             return;
                         }
                     };
@@ -449,11 +462,11 @@ impl Client {
                     Some(unit) => match unit {
                         FullUnit::Player { unit, x, y, .. } => {
                             // TODO pos changed event?
-                            if current_state.x == -1.0 {
+                            if current_state.x == -1.0 && x != -1.0 {
                                 current_state.x = x;
                                 println!("Update x: {}", x);
                             }
-                            if current_state.y == -1.0 {
+                            if current_state.y == -1.0 && y != -1.0 {
                                 current_state.y = y;
                                 println!("Update y: {}", y);
                             }
@@ -516,7 +529,7 @@ impl Client {
                     .unwrap();
             }
             Packet::Other(id) => {
-                eprintln!("Unhandled packet: {id}");
+                //eprintln!("Unhandled packet: {id}");
             }
             _ => {}
         }

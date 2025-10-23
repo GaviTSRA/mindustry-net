@@ -847,8 +847,7 @@ fn read_specific_block_data(
 
         for i in 0..varcount {
             let name = read_string(reader);
-            /*Object value =*/
-            read_object_boxed(reader, true);
+            let value = read_object_boxed(reader, true);
 
             //names[i] = name;
             //values[i] = value;
@@ -877,9 +876,10 @@ fn read_specific_block_data(
         //  }
         //});
 
-        //if privileged && version >= 2){
-        //  ipt = Mathf.clamp(read.s(), 1, maxInstructionsPerTick);
-        //}
+        if block_name == "world-processor" && version >= 2 {
+            reader.short();
+          //ipt = Mathf.clamp(read.s(), 1, maxInstructionsPerTick);
+        }
 
         if version >= 3 {
             let tag = read_prefixed_string(reader);

@@ -183,8 +183,8 @@ pub enum Object {
     NotImplemented,
 }
 
-pub fn read_object_boxed(reader: &mut Reader, box_: bool) {
-    read_object(reader);
+pub fn read_object_boxed(reader: &mut Reader, box_: bool) -> Object {
+    read_object(reader)
 }
 
 // TODO

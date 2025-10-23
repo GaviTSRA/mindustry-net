@@ -456,10 +456,10 @@ pub fn parse_regular_packet(
             fs::write(&default_content_map_path, default_content_map_data).unwrap();
 
             let map = read_map(&mut reader, &content_map);
-            let team_blocks = read_team_blocks(&mut reader);
-            println!("{team_blocks:?}");
+            //let team_blocks = read_team_blocks(&mut reader);
+            //println!("{team_blocks:?}");
 
-            println!("{:?}", reader.read_remaining());
+            //println!("{:?}", reader.read_remaining());
 
             // let markers = read_markers(&mut reader);
             // println!("{markers:?}");
@@ -519,7 +519,11 @@ pub fn parse_regular_packet(
             let tile = read_tile(&mut reader);
             let block = reader.short();
             let builder = read_unit(&mut reader);
-            Ok(Packet::DeconstructFinish { tile, block , builder})
+            Ok(Packet::DeconstructFinish {
+                tile,
+                block,
+                builder,
+            })
         }
         34 => {
             let mut units = HashMap::new();
@@ -626,10 +630,10 @@ pub fn parse_regular_packet(
     };
 
     if reader.remaining() != 0 {
-        eprintln!(
-            "Did not read complete packet: ID {id}, {} bytes remain",
-            reader.remaining()
-        );
+        //eprintln!(
+        //    "Did not read complete packet: ID {id}, {} bytes remain",
+        //    reader.remaining()
+        //);
     }
 
     result
