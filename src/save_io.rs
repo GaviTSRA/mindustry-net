@@ -158,9 +158,10 @@ impl Map {
 }
 
 pub fn read_map(mut reader: &mut Reader, content_map: &HashMap<String, Vec<String>>) -> Map {
+    tracing::debug!("Loading map data...");
     let width = reader.short() as u32;
     let height = reader.short() as u32;
-    println!("{width} x {height}");
+    tracing::debug!("Size: {width} x {height}");
 
     let block_types = load_block_types();
 
@@ -296,6 +297,7 @@ pub fn read_map(mut reader: &mut Reader, content_map: &HashMap<String, Vec<Strin
     }
 
     // map.visualize();
+    tracing::debug!("Map loaded");
     map
 }
 

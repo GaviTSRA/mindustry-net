@@ -1,4 +1,4 @@
-use crate::save_io::{Map, read_content_header, read_map, read_markers, read_team_blocks};
+use crate::save_io::{Map, read_content_header, read_map};
 use crate::type_io::{
     KickReason, Object, Reader, Tile, Unit, read_kick, read_object, read_prefixed_string,
     read_string, read_string_map, read_tile, read_unit, write_byte, write_float, write_int,
@@ -9,6 +9,7 @@ use base64::Engine;
 use base64::engine::general_purpose;
 use flate2::read::ZlibDecoder;
 use lz4::block::{compress, decompress};
+use num_enum::TryFromPrimitive;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
@@ -38,6 +39,43 @@ pub enum FrameworkPacket {
     KeepAlive,
     RegisterUDP(u32),
     RegisterTCP(u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive)]
+#[repr(u8)]
+pub enum PacketId {
+    StreamBegin = 0,
+    StreamChunk = 1,
+    WorldStream = 2,
+    Connect = 3,
+
+    BeginBreak = 9,
+    BeginPlace = 10,
+    BlockSnapshot = 11,
+
+    ClientSnapshot = 18,
+
+    ConnectCallConfirm = 22,
+    ConstructFinish = 23,
+
+    DeconstructFinish = 28,
+
+    EntitySnapshot = 34,
+
+    KickCall = 44,
+    KickCall2 = 45,
+
+    SpawnCall = 59,
+
+    RotateBlockCall = 69,
+
+    SendChatMessageCall = 71,
+
+    SendMessageCall2 = 73,
+
+    StateSnapshot = 94,
+
+    TileConfigCall = 99,
 }
 
 #[derive(Debug)]
@@ -392,10 +430,19 @@ pub fn parse_regular_packet(
     mut reader: Reader,
     content_map: &Option<HashMap<String, Vec<String>>>,
 ) -> Result<Packet, PacketError> {
-    // println!("{id}");
+    let packet_id = match PacketId::try_from(id) {
+        Ok(parsed_id) => {
+            tracing::debug!("Parsing {parsed_id:?} packet");
+            parsed_id
+        }
+        Err(_) => {
+            tracing::debug!("Skipping packet {id}");
+            return Ok(Packet::Other(id));
+        }
+    };
 
-    let result = match id {
-        0 => {
+    let result = match packet_id {
+        PacketId::StreamBegin => {
             let id = reader.int();
             let total = reader.int();
             let stream_type = reader.byte();
@@ -405,20 +452,21 @@ pub fn parse_regular_packet(
                 stream_type,
             })
         }
-        1 => {
+        PacketId::StreamChunk => {
             let id = reader.int();
             let length = reader.short();
             let data = reader.bytes(length as usize);
             Ok(Packet::StreamChunk { id, data })
         }
-        2 => {
+        PacketId::WorldStream => {
+            tracing::debug!("Loading world...");
             let remaining = reader.read_remaining();
             let mut decoder = ZlibDecoder::new(&*remaining);
             let mut data = Vec::new();
             match decoder.read_to_end(&mut data) {
                 Ok(_) => {}
                 Err(e) => {
-                    eprintln!("{e}");
+                    tracing::error!("Error loading world data: {e}");
                     return Err(PacketError::WorldDataDecompressionFailed);
                 }
             }
@@ -466,8 +514,7 @@ pub fn parse_regular_packet(
             // let custom_chunks = read_custom_chunks(&mut reader);
             // println!("{custom_chunks:?}");
 
-            println!("Remaining data: {}", reader.remaining()); // TODO
-
+            tracing::debug!("World loaded!");
             Ok(Packet::WorldStream {
                 wave,
                 wave_time,
@@ -479,13 +526,13 @@ pub fn parse_regular_packet(
                 map,
             })
         }
-        9 => Ok(Packet::BeginBreak {
+        PacketId::BeginBreak => Ok(Packet::BeginBreak {
             unit: read_unit(&mut reader),
             team: reader.byte(),
             x: reader.int(),
             y: reader.int(),
         }),
-        10 => Ok(Packet::BeginPlace {
+        PacketId::BeginPlace => Ok(Packet::BeginPlace {
             unit: read_unit(&mut reader),
             result: reader.unsigned_short(),
             team: reader.byte(),
@@ -493,13 +540,13 @@ pub fn parse_regular_packet(
             y: reader.int(),
             rotation: reader.int(),
         }),
-        11 => {
+        PacketId::BlockSnapshot => {
             let amount = reader.short();
             let data_length = reader.short();
             let data = reader.bytes(data_length as usize);
             Ok(Packet::BlockSnapshot { amount, data })
         }
-        23 => {
+        PacketId::ConstructFinish => {
             let tile = read_tile(&mut reader);
             let block = reader.short();
             let builder = read_unit(&mut reader);
@@ -515,7 +562,7 @@ pub fn parse_regular_packet(
                 config,
             })
         }
-        28 => {
+        PacketId::DeconstructFinish => {
             let tile = read_tile(&mut reader);
             let block = reader.short();
             let builder = read_unit(&mut reader);
@@ -525,7 +572,7 @@ pub fn parse_regular_packet(
                 builder,
             })
         }
-        34 => {
+        PacketId::EntitySnapshot => {
             let mut units = HashMap::new();
 
             let amount = reader.short();
@@ -550,15 +597,15 @@ pub fn parse_regular_packet(
 
             Ok(Packet::EntitySnapshot { units })
         }
-        44 => {
+        PacketId::KickCall => {
             let reason = read_prefixed_string(&mut reader).unwrap();
             Ok(Packet::KickCall { reason })
         }
-        45 => {
+        PacketId::KickCall2 => {
             let reason = read_kick(&mut reader).unwrap();
             Ok(Packet::KickCall2 { reason })
         }
-        59 => {
+        PacketId::SpawnCall => {
             let tile_x = reader.short();
             let tile_y = reader.short();
             let entity = reader.int();
@@ -568,7 +615,7 @@ pub fn parse_regular_packet(
                 entity,
             })
         }
-        69 => {
+        PacketId::RotateBlockCall => {
             let entity = reader.int();
             let tile = read_tile(&mut reader);
             let rotation = reader.byte();
@@ -578,7 +625,7 @@ pub fn parse_regular_packet(
                 rotation,
             })
         }
-        73 => {
+        PacketId::SendMessageCall2 => {
             let message = read_prefixed_string(&mut reader).unwrap();
             let unformatted = read_prefixed_string(&mut reader);
             let sender = reader.int();
@@ -588,7 +635,7 @@ pub fn parse_regular_packet(
                 sender,
             })
         }
-        94 => {
+        PacketId::StateSnapshot => {
             let wave_time = reader.float();
             let wave = reader.int();
             let enemies = reader.int();
@@ -615,7 +662,7 @@ pub fn parse_regular_packet(
                 core_data,
             })
         }
-        99 => {
+        PacketId::TileConfigCall => {
             let player = reader.int();
             let tile = read_tile(&mut reader);
             let value = read_object(&mut reader);
@@ -626,14 +673,14 @@ pub fn parse_regular_packet(
                 value,
             })
         }
-        id => Ok(Packet::Other(id)),
+        _ => Ok(Packet::Other(id)),
     };
 
     if reader.remaining() != 0 {
-        //eprintln!(
-        //    "Did not read complete packet: ID {id}, {} bytes remain",
-        //    reader.remaining()
-        //);
+        tracing::warn!(
+            "Packet with id {id} has {} remaining bytes",
+            reader.remaining()
+        );
     }
 
     result

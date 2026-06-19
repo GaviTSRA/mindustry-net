@@ -50,7 +50,7 @@ pub struct Client {
 // TODO improve included data
 #[derive(Debug)]
 pub enum ClientEvent {
-    MapLoaded,
+    WorldLoaded,
     BlockChanged {
         tile: Tile,
     },
@@ -64,16 +64,20 @@ pub enum ClientEvent {
 
 impl Client {
     pub async fn new(ip: String, username: String) -> Client {
+        tracing::info!("Client '{username}' connecting to {ip}");
         let (tx_in, rx_in) = mpsc::channel::<AnyPacket>(100);
         let (tx_out, mut rx_out) = mpsc::channel::<QueuedPacket>(100);
 
+        tracing::debug!("Creating TCP connection...");
         let tcp = TcpStream::connect(&ip).await.unwrap();
         let (mut tcp_read, mut tcp_write) = tcp.into_split();
 
+        tracing::debug!("Creating UDP connection...");
         let udp = Arc::from(UdpSocket::bind("0.0.0.0:0").await.unwrap());
         let mut udp_read = udp.clone();
         udp.connect(ip).await.unwrap();
 
+        tracing::debug!("Loading content map...");
         let default_content_map_path = PathBuf::from("content-map.json");
         let default_content_map = if default_content_map_path.exists() {
             let default_content_map_data = fs::read_to_string(default_content_map_path).unwrap();
@@ -81,9 +85,9 @@ impl Client {
         } else {
             None
         };
-
         let content_map = Arc::new(RwLock::new(default_content_map));
 
+        tracing::debug!("Setting up threads...");
         // TCP Read
         let tx_in_tcp = tx_in.clone();
         let content = Arc::clone(&content_map);
@@ -104,7 +108,7 @@ impl Client {
                 let packet = match read_packet_udp(&mut udp_read, &map).await {
                     Ok(packet) => packet,
                     Err(err) => {
-                        println!("[UDP Error] {err:?}");
+                        tracing::error!("Error receiving UDP packet: {err:?}");
                         continue;
                     }
                 };
@@ -126,6 +130,7 @@ impl Client {
             }
         });
 
+        tracing::debug!("Client ready!");
         Client {
             state: Arc::new(Mutex::new(State {
                 player_id: 0,
@@ -173,8 +178,9 @@ impl Client {
 
     async fn handle_framework_packet(&mut self, packet: FrameworkPacket) {
         match packet {
-            FrameworkPacket::KeepAlive => {}
+            FrameworkPacket::KeepAlive => tracing::debug!("KeepAlive received!"),
             FrameworkPacket::RegisterTCP(id) => {
+                tracing::debug!("TCP Registered, registering UDP...");
                 let answer = write_framework_packet(FrameworkPacket::RegisterUDP(id));
                 self.queue_out_packet(QueuedPacket {
                     reliable: false,
@@ -183,6 +189,7 @@ impl Client {
                 .await;
             }
             FrameworkPacket::RegisterUDP(..) => {
+                tracing::debug!("UDP registered, sending connect packet...");
                 let connect_packet = write_packet(Packet::Connect {
                     version: 146,
                     client: "official".to_string(),
@@ -208,6 +215,7 @@ impl Client {
                 .await;
 
                 // KeepAlive & State
+                tracing::debug!("Starting main task...");
                 let tx_out_keepalive = self.tx_out.clone();
                 let state_keepalive = Arc::clone(&self.state);
                 tokio::spawn(async move {
@@ -227,7 +235,7 @@ impl Client {
                             y: current_state.y,
                             pointer_x: current_state.x,
                             pointer_y: current_state.y,
-                            rotation: (i % 360 * 50) as f32,
+                            rotation: 0.0,
                             base_rotation: 0.0,
                             x_velocity: 0.0,
                             y_velocity: 0.0,
@@ -244,6 +252,7 @@ impl Client {
                             view_height: 1080.0,
                         };
 
+                        tracing::debug!("Sending ClientSnapshot");
                         tx_out_keepalive
                             .send(QueuedPacket {
                                 reliable: true,
@@ -253,6 +262,7 @@ impl Client {
                             .unwrap();
 
                         if i % (5 * 5) == 0 {
+                            tracing::debug!("Sending TCP KeepAlive");
                             tx_out_keepalive
                                 .send(QueuedPacket {
                                     reliable: true,
@@ -262,6 +272,7 @@ impl Client {
                                 .unwrap();
                         }
                         if i % (15 * 5) == 0 {
+                            tracing::debug!("Sending UDP KeepAlive");
                             tx_out_keepalive
                                 .send(QueuedPacket {
                                     reliable: false,
@@ -284,6 +295,7 @@ impl Client {
                 stream_type,
                 total,
             } => {
+                tracing::debug!("Receiving stream {id} ({total} bytes)");
                 self.streams
                     .insert(id, StreamBuilder::new(id, stream_type, total));
             }
@@ -291,12 +303,13 @@ impl Client {
                 let stream = match self.streams.get_mut(&id) {
                     Some(stream) => stream,
                     None => {
-                        eprintln!("Stream {id} not found!");
+                        tracing::error!("Stream {id} not found!");
                         return;
                     }
                 };
                 stream.add(data);
                 if stream.is_done() {
+                    tracing::debug!("Stream {id} completed");
                     let stream = self.streams.remove(&id).unwrap();
                     let content = self.content_map.read().await;
                     let packet = stream.build(&content).unwrap();
@@ -318,7 +331,8 @@ impl Client {
                     *content_map = Some(content.clone());
                 }
 
-                sender.send(ClientEvent::MapLoaded).await.unwrap();
+                tracing::info!("World loaded!");
+                sender.send(ClientEvent::WorldLoaded).await.unwrap();
             }
             Packet::BeginPlace {
                 x,
@@ -332,7 +346,7 @@ impl Client {
                 let map_tile = match state.map.get_mut(x, y) {
                     Some(map_tile) => map_tile,
                     None => {
-                        eprintln!("Recvd begin place before map was loaded, ignoring");
+                        tracing::warn!("Received begin place before map was loaded, ignoring");
                         return;
                     }
                 };
@@ -382,7 +396,7 @@ impl Client {
                     block.name = block_name.clone();
                     // TODO update config
                 } else {
-                    eprintln!("Construct block at {tile:?} missing!");
+                    tracing::warn!("Construct block at {tile:?} missing!");
                 }
 
                 sender
@@ -414,14 +428,14 @@ impl Client {
                     let map_tile = match state.map.get_mut(tile.x as u32, tile.y as u32) {
                         Some(map_tile) => map_tile,
                         None => {
-                            eprintln!(
+                            tracing::warn!(
                                 "Invalid state: Block snapshot contains locally missing block at {tile:?}"
                             );
                             return;
                         }
                     };
                     if map_tile.block_id.unwrap() != block_id {
-                        eprintln!(
+                        tracing::warn!(
                             "Invalid block id at {tile:?}: Expected {block_id} but found {:?}",
                             map_tile.block_id
                         );
@@ -483,10 +497,10 @@ impl Client {
                 sender.send(ClientEvent::UnitSnapshot).await.unwrap();
             }
             Packet::KickCall { reason } => {
-                eprintln!("Kicked: {reason}");
+                tracing::warn!("Client was kicked: {reason}");
             }
             Packet::KickCall2 { reason } => {
-                eprintln!("Kicked: {reason:?}");
+                tracing::warn!("Client was kicked: {reason:?}");
             }
             Packet::SpawnCall {
                 tile_x,
@@ -529,7 +543,7 @@ impl Client {
                     .unwrap();
             }
             Packet::Other(id) => {
-                //eprintln!("Unhandled packet: {id}");
+                tracing::debug!("Unhandled packet: {id}");
             }
             _ => {}
         }

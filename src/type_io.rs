@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use crate::arc_types::Point2;
 
+#[derive(Debug)]
 pub struct Reader {
     buf: Vec<u8>,
     pos: usize,
